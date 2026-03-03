@@ -199,51 +199,116 @@ export const getWetsData = async (sid) => {
 
 // ─────────────────────────────────────────────────
 // 5. GET GROWING SEASON DATA
+// 50th-percentile (median) last spring freeze and first fall freeze
+// Threshold: 28°F — matches NRCS/WETS standard
 // ─────────────────────────────────────────────────
 export const getGrowingSeasonData = async (sid) => {
   const cacheKey = `growing_${sid}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
+  const EMPTY = { threshold: "28°F", probability: "50%", startDate: null, endDate: null, totalDays: null };
+
   try {
-    // Get last spring freeze and first fall freeze dates
-    // Using min temperature data for 1971-2000
+    /*
+     * We request two yearly-interval elements from ACIS, both using add:"date"
+     * so each row contains the actual date on which the threshold was crossed.
+     *
+     * Element 1 — last spring freeze (last date min-temp ≤ 28°F before summer):
+     *   season_start: "1-1"  → calendar year (Jan–Dec)
+     *   reduce: "last_le_28" → last occurrence in that season = last spring freeze
+     *
+     * Element 2 — first fall freeze (first date min-temp ≤ 28°F after summer):
+     *   season_start: "7-1"  → Jul–Jun season
+     *   reduce: "first_le_28"→ first occurrence after July = first autumn freeze
+     */
     const { data } = await axios.post(`${ACIS_BASE_URL}/StnData`, {
       sid,
-      sdate: `${WETS_YEAR_START}`,
-      edate: `${WETS_YEAR_END}`,
+      sdate: `${WETS_YEAR_START}-01-01`,
+      edate: `${WETS_YEAR_END}-12-31`,
       elems: [
         {
           name: "mint",
-          interval: [1, 0, 0], // yearly
+          interval: [1, 0, 0],
           duration: "std",
-          season_start: "7-1",
+          season_start: "1-1",
           reduce: { reduce: "last_le_28", add: "date" },
         },
         {
           name: "mint",
           interval: [1, 0, 0],
           duration: "std",
-          season_start: "1-1",
+          season_start: "7-1",
           reduce: { reduce: "first_le_28", add: "date" },
         },
       ],
     });
 
-    // Parse and calculate median growing season
-    // This is a simplified version - production should use full WETS calculation
-    const result = {
-      threshold: "28°F",
-      probability: "50%",
-      startDate: null,
-      endDate: null,
-      totalDays: null,
-    };
+    if (!data.data || data.data.length < 10) {
+      cache.set(cacheKey, EMPTY);
+      return EMPTY;
+    }
+
+    const springDOYs = []; // day-of-year for last spring freeze, each year
+    const fallDOYs = []; // day-of-year for first fall  freeze, each year
+
+    for (const row of data.data) {
+      // row: [ "YYYY-MM-DD", springElem, fallElem ]
+      // Each elem with add:"date" is: [ numericValue, "YYYY-MM-DD" ] or "M" if missing
+      const springElem = row[1];
+      const fallElem = row[2];
+
+      // Extract date strings robustly (handle both array and plain-string forms)
+      const springDateStr = Array.isArray(springElem) ? springElem[1] : null;
+      const fallDateStr = Array.isArray(fallElem) ? fallElem[1] : null;
+
+      if (springDateStr && springDateStr !== "M" && springDateStr.length >= 8) {
+        const doy = dateToDOY(springDateStr);
+        if (doy !== null && doy >= 1 && doy <= 200) {
+          // Sanity-check: spring freeze must be before July (DOY ≤ 200 ≈ July 18)
+          springDOYs.push(doy);
+        }
+      }
+
+      if (fallDateStr && fallDateStr !== "M" && fallDateStr.length >= 8) {
+        const doy = dateToDOY(fallDateStr);
+        if (doy !== null && doy >= 182) {
+          // Sanity-check: fall freeze must be on/after July 1 (DOY ≥ 182)
+          fallDOYs.push(doy);
+        }
+      }
+    }
+
+    // Need at least half the years to compute a reliable median
+    if (springDOYs.length < 5 || fallDOYs.length < 5) {
+      cache.set(cacheKey, EMPTY);
+      return EMPTY;
+    }
+
+    springDOYs.sort((a, b) => a - b);
+    fallDOYs.sort((a, b) => a - b);
+
+    // 50th percentile = median
+    const springMedianDOY = springDOYs[Math.floor(springDOYs.length / 2)];
+    const fallMedianDOY = fallDOYs[Math.floor(fallDOYs.length / 2)];
+
+    const totalDays = fallMedianDOY - springMedianDOY;
+
+    const result = totalDays > 0
+      ? {
+        threshold: "28°F",
+        probability: "50%",
+        startDate: doyToDisplay(springMedianDOY),
+        endDate: doyToDisplay(fallMedianDOY),
+        totalDays,
+      }
+      : EMPTY;
 
     cache.set(cacheKey, result);
     return result;
-  } catch {
-    return { threshold: "28°F", probability: "50%", startDate: null, endDate: null, totalDays: null };
+  } catch (error) {
+    console.error(`Growing season error for ${sid}:`, error.message);
+    return EMPTY;
   }
 };
 
@@ -267,4 +332,31 @@ function checkDateRange(range) {
 
 function round2(val) {
   return Math.round(val * 100) / 100;
+}
+
+/**
+ * Convert "YYYY-MM-DD" to day-of-year (1 = Jan 1, 365 = Dec 31)
+ * Uses UTC to avoid timezone issues.
+ */
+function dateToDOY(dateStr) {
+  try {
+    const d = new Date(dateStr + "T12:00:00Z");
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.floor((d - yearStart) / 86_400_000) + 1;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Convert day-of-year back to a human-readable string like "March 4".
+ * Uses a non-leap reference year (2001) so DOY 365 = Dec 31.
+ */
+function doyToDisplay(doy) {
+  const ref = new Date(Date.UTC(2001, 0, doy));
+  return ref.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }

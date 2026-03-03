@@ -80,7 +80,23 @@ GET /stations/counties/TX
 → [{ fips: "48051", name: "Burleson", state: "TX" }, ...]
 ```
 
-### Screen: Home → "Search" button click
+### Screen: Home → "Search" button click (Selected Flow: Lat/Lon Search)
+The app uses a two-step flow when searching by Lat/Lon (Flow B).
+
+**Step 1: Identify County & State from GPS (Reverse Geocode)**
+```
+POST /stations/reverse-geocode
+Body: { "lat": 33.77261, "lon": -95.81259 }
+
+→ {
+    "countyFips": "48051",  // 👈 This is the FIPS code
+    "countyName": "Burleson",
+    "stateCode": "TX",
+    "stateName": "Texas"
+  }
+```
+
+**Step 2: Run the full determination for that site**
 ```
 POST /evaluations/calculate
 Headers: { Authorization: "Bearer <token>" }
@@ -88,20 +104,11 @@ Body: {
   "lat": 33.77261,
   "lon": -95.81259,
   "observationDate": "2025-06-04",
-  "countyFips": "48051"        // optional, auto-derived from GPS
+  "countyFips": "48051"        // optional but recommended, from Step 1
 }
 
-✅ → Full evaluation result (see Response Format below)
+✅ → Full evaluation result (see Result Module below)
 ❌ 404 → "No AgACIS WETS station with sufficient data found"
-```
-
-### Screen: Quick Search
-```
-POST /stations/reverse-geocode
-Body: { "lat": 33.77261, "lon": -95.81259 }
-→ { countyFips, countyName, stateCode, stateName }
-
-Then same POST /evaluations/calculate with the GPS coords
 ```
 
 ### Screen: Result (map view with WET/DRY/NORMAL badge)
