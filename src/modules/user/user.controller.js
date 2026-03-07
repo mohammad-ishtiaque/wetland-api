@@ -86,3 +86,14 @@ export const updateAvatar = async (req, res, next) => {
     next(error);
   }
 };
+
+
+export const logout = async (req, res, next) => {
+  try {
+    req.user = null;  
+    res.clearCookie("token");
+    res.json({ success: true, message: "Logout successful" });
+  } catch (error) {
+    next(error);
+  }
+};
