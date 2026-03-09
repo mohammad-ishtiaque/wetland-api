@@ -153,6 +153,9 @@ export const calculate = async (req, res, next) => {
         condition: m.condition,
       })),
 
+      // Full month details — send this back when saving so it can be stored
+      monthDetails: result.monthDetails,
+
       // Additional Information section
       additionalInfo: {
         wetsStation: selectedStation.name,
@@ -336,6 +339,9 @@ export const calculateByLocation = async (req, res, next) => {
         condition: m.condition,
       })),
 
+      // Full month details — send this back when saving so it can be stored
+      monthDetails: result.monthDetails,
+
       additionalInfo: {
         wetsStation: selectedStation.name,
         location: `${displayCountyName}, ${stateCode}`,
@@ -363,9 +369,27 @@ export const calculateByLocation = async (req, res, next) => {
 // Save an evaluation result
 export const saveEvaluation = async (req, res, next) => {
   try {
+    const body = req.body;
+
+    // If the client sends rainfallRecord but not monthDetails (older clients),
+    // map rainfallRecord → monthDetails so the data is not silently dropped.
+    const monthDetails =
+      body.monthDetails?.length > 0
+        ? body.monthDetails
+        : (body.rainfallRecord || []).map((m, i) => ({
+          position: i + 1,
+          month: m.month,
+          less30: m.less30,
+          avg: m.avg,
+          more30: m.more30,
+          rainfall: m.rainfall,
+          condition: m.condition,
+        }));
+
     const evaluationData = {
       user: req.user._id,
-      ...req.body,
+      ...body,
+      monthDetails,
     };
 
     const evaluation = await Evaluation.create(evaluationData);
@@ -381,64 +405,97 @@ export const saveEvaluation = async (req, res, next) => {
 };
 
 // ─── GET /api/v1/evaluations/saved ───
-// Get user's saved evaluations (for Saved screen)
+// Get user's saved evaluations — flat list sorted by most recent
 export const getSavedEvaluations = async (req, res, next) => {
   try {
     const evaluations = await Evaluation.find({ user: req.user._id })
       .sort({ createdAt: -1 })
       .select("station.name county state simpleLabel totalScore period createdAt location");
 
-    // Group by date for UI
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    const list = evaluations.map((e) => ({
+      id: e._id,
+      stationName: e.station?.name,
+      location: `${e.county}, ${e.state}`,
+      simpleLabel: e.simpleLabel,
+      totalScore: e.totalScore,
+      period: e.period,
+      savedAt: e.createdAt,
+    }));
 
-    const grouped = { today: [], yesterday: [], earlier: [] };
-
-    for (const e of evaluations) {
-      const created = new Date(e.createdAt);
-      created.setHours(0, 0, 0, 0);
-
-      const item = {
-        id: e._id,
-        stationName: e.station?.name,
-        location: `${e.county}, ${e.state}`,
-        simpleLabel: e.simpleLabel,
-        totalScore: e.totalScore,
-        period: e.period,
-        time: e.createdAt,
-      };
-
-      if (created.getTime() === today.getTime()) {
-        grouped.today.push(item);
-      } else if (created.getTime() === yesterday.getTime()) {
-        grouped.yesterday.push(item);
-      } else {
-        grouped.earlier.push(item);
-      }
-    }
-
-    res.json({ success: true, data: grouped });
+    res.json({ success: true, data: list });
   } catch (error) {
     next(error);
   }
 };
 
 // ─── GET /api/v1/evaluations/:id ───
-// Get single evaluation detail
+// Get single evaluation detail — same response shape as /calculate
 export const getEvaluation = async (req, res, next) => {
   try {
-    const evaluation = await Evaluation.findOne({
+    const e = await Evaluation.findOne({
       _id: req.params.id,
       user: req.user._id,
     });
 
-    if (!evaluation) {
+    if (!e) {
       return res.status(404).json({ success: false, message: "Evaluation not found" });
     }
 
-    res.json({ success: true, data: evaluation });
+    const response = {
+      // Summary
+      simpleLabel: e.simpleLabel,
+      determination: e.determination,
+      totalScore: e.totalScore,
+      maxScore: e.maxScore,
+      period: e.period,
+
+      // Station
+      station: {
+        name: e.station?.name,
+        sid: e.station?.sid,
+        lat: e.station?.lat,
+        lon: e.station?.lon,
+        distance: e.station?.distance ?? null,
+      },
+
+      // Location
+      location: { lat: e.location?.lat, lon: e.location?.lon },
+      county: e.county,
+      state: e.state,
+      countyFips: e.countyFips,
+
+      // Rainfall record table
+      rainfallRecord: (e.monthDetails || []).map((m) => ({
+        month: m.month,
+        less30: m.less30,
+        avg: m.avg,
+        more30: m.more30,
+        rainfall: m.rainfall,
+        condition: m.condition,
+      })),
+
+      // Additional info
+      additionalInfo: {
+        wetsStation: e.station?.name,
+        location: `${e.county}, ${e.state}`,
+        soilMapUnit: e.soilMapUnit?.name
+          ? `${e.soilMapUnit.name} (${e.soilMapUnit.symbol})`
+          : "Not available",
+        growingSeason: e.growingSeason?.startDate
+          ? `${e.growingSeason.startDate} - ${e.growingSeason.endDate} (${e.growingSeason.totalDays} days)`
+          : "Not available",
+        growingSeasonThreshold: e.growingSeason?.probability && e.growingSeason?.threshold
+          ? `${e.growingSeason.probability} ≥ ${e.growingSeason.threshold}`
+          : "Not available",
+      },
+
+      climateReferencePeriod: e.climateReferencePeriod || "1971-2000",
+      stationLog: e.stationLog || [],
+      observationDate: e.observationDate,
+      savedAt: e.createdAt,
+    };
+
+    res.json({ success: true, data: response });
   } catch (error) {
     next(error);
   }
