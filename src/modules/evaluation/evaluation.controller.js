@@ -11,6 +11,15 @@ import { getPriorMonths, haversineDistance } from "../../utils/geo.js";
 import { calculateDetermination } from "../../utils/determination.js";
 import { MAX_STATION_DISTANCE_MILES } from "../../config/constants.js";
 
+const formatWetsStation = (name, distance) => {
+  if (!name) return null;
+  let text = `${name}\nThis is the closest station to site with all data`;
+  if (typeof distance === 'number' && !Number.isNaN(distance)) {
+    text += `\n${Math.round(distance * 10) / 10} miles from site`;
+  }
+  return text;
+};
+
 // ─── POST /api/v1/evaluations/calculate ───
 // Main endpoint: takes location + date, returns full determination
 export const calculate = async (req, res, next) => {
@@ -158,7 +167,7 @@ export const calculate = async (req, res, next) => {
 
       // Additional Information section
       additionalInfo: {
-        wetsStation: selectedStation.name,
+        wetsStation: formatWetsStation(selectedStation.name, selectedStation.distance),
         location: `${geo.countyName}, ${geo.stateCode}`,
         soilMapUnit: soil.muname
           ? `${soil.muname} (${soil.musym})`
@@ -343,7 +352,7 @@ export const calculateByLocation = async (req, res, next) => {
       monthDetails: result.monthDetails,
 
       additionalInfo: {
-        wetsStation: selectedStation.name,
+        wetsStation: formatWetsStation(selectedStation.name, selectedStation.distance),
         location: `${displayCountyName}, ${stateCode}`,
         soilMapUnit: soil.muname
           ? `${soil.muname} (${soil.musym})`
@@ -476,7 +485,7 @@ export const getEvaluation = async (req, res, next) => {
 
       // Additional info
       additionalInfo: {
-        wetsStation: e.station?.name,
+        wetsStation: formatWetsStation(e.station?.name, e.station?.distance),
         location: `${e.county}, ${e.state}`,
         soilMapUnit: e.soilMapUnit?.name
           ? `${e.soilMapUnit.name} (${e.soilMapUnit.symbol})`
