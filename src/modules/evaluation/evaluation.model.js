@@ -42,13 +42,31 @@ const evaluationSchema = new mongoose.Schema(
     state: String,
     countyFips: String,
 
-    // Station
+    // Station (primary / closest — always populated for backward compat)
     station: {
       name: String,
       sid: String,
       lat: Number,
       lon: Number,
       distance: Number, // miles from GPS point
+    },
+
+    // All stations used (populated when triangulated; single-element when single)
+    stations: [
+      {
+        name: String,
+        sid: String,
+        lat: Number,
+        lon: Number,
+        distance: Number,
+      },
+    ],
+
+    // How the determination was made
+    stationMethod: {
+      type: String,
+      enum: ["single", "triangulated"],
+      default: "single",
     },
 
     // Soil

@@ -5,11 +5,16 @@ import {
   getMonthlyPrecipitation,
   getWetsData,
   getGrowingSeasonData,
+  findNearestValidStations,
+  averageWetsData,
+  averageMultiStationPrecipitation,
 } from "../../utils/acisService.js";
 import { getSoilMapUnit, reverseGeocode, getCountiesByState } from "../../utils/externalServices.js";
 import { getPriorMonths, haversineDistance } from "../../utils/geo.js";
 import { calculateDetermination } from "../../utils/determination.js";
 import { MAX_STATION_DISTANCE_MILES } from "../../config/constants.js";
+
+// ─── HELPERS ───
 
 const formatWetsStation = (name, distance) => {
   if (!name) return null;
@@ -20,8 +25,36 @@ const formatWetsStation = (name, distance) => {
   return text;
 };
 
-// ─── POST /api/v1/evaluations/calculate ───
+/**
+ * Format the wetsStation text for triangulated (multi-station) mode.
+ * Lists all station names and their distances.
+ */
+const formatTriangulatedWetsStation = (stations) => {
+  if (!stations || stations.length === 0) return null;
+  const names = stations.map((s) => s.name).join(", ");
+  const distances = stations
+    .map((s) => `${s.name}: ${Math.round(s.distance * 10) / 10} mi`)
+    .join("\n");
+  return `${names}\nTriangulated from ${stations.length} nearest stations\n${distances}`;
+};
+
+/**
+ * Build the station info array used in both response and saving.
+ */
+const buildStationInfoArray = (stationObjects) =>
+  stationObjects.map((s) => ({
+    name: s.name,
+    sid: s.sid,
+    lat: s.lat,
+    lon: s.lon,
+    distance: Math.round(s.distance * 10) / 10,
+  }));
+
+
+// ═══════════════════════════════════════════════════════════════
+// POST /api/v1/evaluations/calculate
 // Main endpoint: takes location + date, returns full determination
+// ═══════════════════════════════════════════════════════════════
 export const calculate = async (req, res, next) => {
   try {
     const { lat, lon, observationDate, countyFips: inputFips } = req.body;
@@ -54,7 +87,7 @@ export const calculate = async (req, res, next) => {
       });
     }
 
-    // ─── STEP 3: Find first valid station with WETS data ───
+    // ─── STEP 3: Find first valid station with WETS data (ORIGINAL LOGIC) ───
     let selectedStation = null;
     let wetsData = null;
     const stationLog = [];
@@ -101,28 +134,58 @@ export const calculate = async (req, res, next) => {
       break;
     }
 
+    // ─── STEP 3b: TRIANGULATED FALLBACK ───
+    // If no single station found, try to find 3 nearest valid ones and average
+    let stationMethod = "single";
+    let triangulatedStations = null; // array of { station, wetsData }
+    let allStationInfos = [];
+
     if (!selectedStation) {
-      return res.status(404).json({
-        success: false,
-        message: `No AgACIS WETS station with sufficient data found within ${MAX_STATION_DISTANCE_MILES} miles`,
-        data: { stationLog, totalStationsChecked: stationLog.length },
-      });
+      const fallback = await findNearestValidStations(lat, lon, 3, MAX_STATION_DISTANCE_MILES);
+      stationLog.push(...fallback.log);
+
+      if (fallback.validStations.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: `No AgACIS WETS station with sufficient data found within ${MAX_STATION_DISTANCE_MILES} miles`,
+          data: { stationLog, totalStationsChecked: stationLog.length },
+        });
+      }
+
+      // Use the fallback stations
+      triangulatedStations = fallback.validStations;
+      selectedStation = triangulatedStations[0].station; // closest = primary
+      wetsData = averageWetsData(triangulatedStations.map((s) => s.wetsData));
+      stationMethod = triangulatedStations.length > 1 ? "triangulated" : "single";
+      allStationInfos = buildStationInfoArray(triangulatedStations.map((s) => s.station));
+    } else {
+      allStationInfos = buildStationInfoArray([selectedStation]);
     }
 
     // ─── STEP 4: Determine 3 prior months ───
     const priorMonths = getPriorMonths(observationDate);
 
     // ─── STEP 5: Get actual monthly rainfall ───
-    const rainfall = await getMonthlyPrecipitation(
-      selectedStation.sid,
-      priorMonths[2].num, priorMonths[2].year, // earliest month
-      priorMonths[0].num, priorMonths[0].year   // latest month
-    );
+    let rainfall;
+    if (stationMethod === "triangulated") {
+      // Average precipitation across all triangulated stations
+      rainfall = await averageMultiStationPrecipitation(
+        triangulatedStations.map((s) => s.station),
+        priorMonths[2].num, priorMonths[2].year,
+        priorMonths[0].num, priorMonths[0].year
+      );
+    } else {
+      rainfall = await getMonthlyPrecipitation(
+        selectedStation.sid,
+        priorMonths[2].num, priorMonths[2].year,
+        priorMonths[0].num, priorMonths[0].year
+      );
+    }
 
     // ─── STEP 6: Get soil map unit ───
     const soil = await getSoilMapUnit(lat, lon);
 
-    // ─── STEP 7: Get growing season ───
+    // ─── STEP 7: Get growing season (always from closest station) ───
     const growingSeason = await getGrowingSeasonData(selectedStation.sid);
 
     // ─── STEP 8: Run NRCS Procedure 2 ───
@@ -131,13 +194,13 @@ export const calculate = async (req, res, next) => {
     // ─── BUILD RESPONSE ───
     const response = {
       // Summary (for Result card on map screen)
-      simpleLabel: result.simpleLabel,          // "WET" | "DRY" | "NORMAL"
-      determination: result.determination,       // "Wetter than Normal"
+      simpleLabel: result.simpleLabel,
+      determination: result.determination,
       totalScore: result.totalScore,
       maxScore: result.maxScore,
       period: result.period,
 
-      // Station info
+      // Station info (primary — backward compatible)
       station: {
         name: selectedStation.name,
         sid: selectedStation.sid,
@@ -146,13 +209,17 @@ export const calculate = async (req, res, next) => {
         distance: Math.round(selectedStation.distance * 10) / 10,
       },
 
+      // NEW: all stations used + method indicator
+      stations: allStationInfos,
+      stationMethod,
+
       // Location
       location: { lat, lon },
       county: geo.countyName,
       state: geo.stateCode,
       countyFips,
 
-      // Rainfall Record table (for Result Summary screen)
+      // Rainfall Record table
       rainfallRecord: result.monthDetails.map((m) => ({
         month: m.month,
         less30: m.less30,
@@ -162,12 +229,14 @@ export const calculate = async (req, res, next) => {
         condition: m.condition,
       })),
 
-      // Full month details — send this back when saving so it can be stored
+      // Full month details
       monthDetails: result.monthDetails,
 
       // Additional Information section
       additionalInfo: {
-        wetsStation: formatWetsStation(selectedStation.name, selectedStation.distance),
+        wetsStation: stationMethod === "triangulated"
+          ? formatTriangulatedWetsStation(allStationInfos)
+          : formatWetsStation(selectedStation.name, selectedStation.distance),
         location: `${geo.countyName}, ${geo.stateCode}`,
         soilMapUnit: soil.muname
           ? `${soil.muname} (${soil.musym})`
@@ -191,8 +260,11 @@ export const calculate = async (req, res, next) => {
   }
 };
 
-// ─── POST /api/v1/evaluations/calculate-by-location ───
-// Same result as /calculate but uses state + county name/FIPS instead of lat/lon
+
+// ═══════════════════════════════════════════════════════════════
+// POST /api/v1/evaluations/calculate-by-location
+// Same result as /calculate but uses state + county name/FIPS
+// ═══════════════════════════════════════════════════════════════
 export const calculateByLocation = async (req, res, next) => {
   try {
     const { state, county, observationDate } = req.body;
@@ -205,7 +277,6 @@ export const calculateByLocation = async (req, res, next) => {
     }
 
     // ─── STEP 1: Resolve county FIPS ───
-    // Accept either a 5-digit FIPS string directly, or a county name to look up
     let countyFips = null;
     let countyName = null;
     const stateCode = state.trim().toUpperCase();
@@ -214,9 +285,7 @@ export const calculateByLocation = async (req, res, next) => {
 
     if (isFips) {
       countyFips = county.trim();
-      // We'll populate countyName later from the ACIS station metadata
     } else {
-      // Look up counties in the state and match by name (case-insensitive)
       const counties = await getCountiesByState(stateCode);
       const searchName = county.trim().toLowerCase().replace(/\s+county$/i, "").trim();
 
@@ -237,21 +306,14 @@ export const calculateByLocation = async (req, res, next) => {
     }
 
     // ─── STEP 2: Find stations in this county ───
-    const stations = await findStationsByCounty(countyFips);
+    const countyStations = await findStationsByCounty(countyFips);
 
-    if (stations.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: `No AgACIS weather stations found in county FIPS ${countyFips}`,
-      });
-    }
-
-    // ─── STEP 3: Find first valid station with WETS data ───
+    // ─── STEP 3: Try to find a valid station in the county (ORIGINAL LOGIC) ───
     let selectedStation = null;
     let wetsData = null;
     const stationLog = [];
 
-    for (const station of stations) {
+    for (const station of countyStations) {
       if (!station.hasPrecipData) {
         stationLog.push({
           stationName: station.name,
@@ -285,32 +347,81 @@ export const calculateByLocation = async (req, res, next) => {
       break;
     }
 
-    if (!selectedStation) {
-      return res.status(404).json({
-        success: false,
-        message: `No AgACIS WETS station with sufficient data found in county FIPS ${countyFips}`,
-        data: { stationLog, totalStationsChecked: stationLog.length },
-      });
-    }
+    // ─── STEP 3b: TRIANGULATED FALLBACK ───
+    // No valid station in county → find 3 nearest valid stations within 100 miles
+    let stationMethod = "single";
+    let triangulatedStations = null;
+    let allStationInfos = [];
+    let refLat, refLon;
 
-    // Use station coordinates as the representative point for this county
-    const refLat = selectedStation.lat;
-    const refLon = selectedStation.lon;
+    if (!selectedStation) {
+      // We need a reference point for geographic search.
+      // Use the centroid of whatever stations exist in the county,
+      // or fall back to the county's first station's coords.
+      if (countyStations.length > 0) {
+        refLat = countyStations.reduce((s, st) => s + (st.lat || 0), 0) / countyStations.length;
+        refLon = countyStations.reduce((s, st) => s + (st.lon || 0), 0) / countyStations.length;
+      } else {
+        // No stations at all in this county — cannot triangulate without coords
+        return res.status(404).json({
+          success: false,
+          message: `No AgACIS weather stations found in county FIPS ${countyFips}. Try using the GPS-based /calculate endpoint instead.`,
+          data: { stationLog, totalStationsChecked: stationLog.length },
+        });
+      }
+
+      stationLog.push({
+        stationName: "—",
+        sid: "—",
+        status: "fallback",
+        reason: `No valid station in county — searching ${MAX_STATION_DISTANCE_MILES} mi radius for triangulation`,
+      });
+
+      const fallback = await findNearestValidStations(refLat, refLon, 3, MAX_STATION_DISTANCE_MILES);
+      stationLog.push(...fallback.log);
+
+      if (fallback.validStations.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: `No AgACIS WETS station with sufficient data found within ${MAX_STATION_DISTANCE_MILES} miles of county`,
+          data: { stationLog, totalStationsChecked: stationLog.length },
+        });
+      }
+
+      triangulatedStations = fallback.validStations;
+      selectedStation = triangulatedStations[0].station; // closest = primary
+      wetsData = averageWetsData(triangulatedStations.map((s) => s.wetsData));
+      stationMethod = triangulatedStations.length > 1 ? "triangulated" : "single";
+      allStationInfos = buildStationInfoArray(triangulatedStations.map((s) => s.station));
+    } else {
+      refLat = selectedStation.lat;
+      refLon = selectedStation.lon;
+      allStationInfos = buildStationInfoArray([selectedStation]);
+    }
 
     // ─── STEP 4: Determine 3 prior months ───
     const priorMonths = getPriorMonths(observationDate);
 
     // ─── STEP 5: Get actual monthly rainfall ───
-    const rainfall = await getMonthlyPrecipitation(
-      selectedStation.sid,
-      priorMonths[2].num, priorMonths[2].year,
-      priorMonths[0].num, priorMonths[0].year
-    );
+    let rainfall;
+    if (stationMethod === "triangulated") {
+      rainfall = await averageMultiStationPrecipitation(
+        triangulatedStations.map((s) => s.station),
+        priorMonths[2].num, priorMonths[2].year,
+        priorMonths[0].num, priorMonths[0].year
+      );
+    } else {
+      rainfall = await getMonthlyPrecipitation(
+        selectedStation.sid,
+        priorMonths[2].num, priorMonths[2].year,
+        priorMonths[0].num, priorMonths[0].year
+      );
+    }
 
-    // ─── STEP 6: Get soil map unit (using station coords as proxy) ───
+    // ─── STEP 6: Get soil map unit ───
     const soil = await getSoilMapUnit(refLat, refLon);
 
-    // ─── STEP 7: Get growing season ───
+    // ─── STEP 7: Get growing season (from closest station) ───
     const growingSeason = await getGrowingSeasonData(selectedStation.sid);
 
     // ─── STEP 8: Run NRCS Procedure 2 ───
@@ -318,7 +429,7 @@ export const calculateByLocation = async (req, res, next) => {
 
     const displayCountyName = countyName || selectedStation.county || countyFips;
 
-    // ─── BUILD RESPONSE (identical shape to /calculate) ───
+    // ─── BUILD RESPONSE ───
     const response = {
       simpleLabel: result.simpleLabel,
       determination: result.determination,
@@ -326,13 +437,20 @@ export const calculateByLocation = async (req, res, next) => {
       maxScore: result.maxScore,
       period: result.period,
 
+      // Primary station (backward compatible)
       station: {
         name: selectedStation.name,
         sid: selectedStation.sid,
-        lat: refLat,
-        lon: refLon,
-        distance: null, // no user GPS to measure from
+        lat: selectedStation.lat,
+        lon: selectedStation.lon,
+        distance: selectedStation.distance != null
+          ? Math.round(selectedStation.distance * 10) / 10
+          : null,
       },
+
+      // NEW: all stations + method
+      stations: allStationInfos,
+      stationMethod,
 
       location: { lat: refLat, lon: refLon },
       county: displayCountyName,
@@ -348,11 +466,12 @@ export const calculateByLocation = async (req, res, next) => {
         condition: m.condition,
       })),
 
-      // Full month details — send this back when saving so it can be stored
       monthDetails: result.monthDetails,
 
       additionalInfo: {
-        wetsStation: formatWetsStation(selectedStation.name, selectedStation.distance),
+        wetsStation: stationMethod === "triangulated"
+          ? formatTriangulatedWetsStation(allStationInfos)
+          : formatWetsStation(selectedStation.name, selectedStation.distance),
         location: `${displayCountyName}, ${stateCode}`,
         soilMapUnit: soil.muname
           ? `${soil.muname} (${soil.musym})`
@@ -374,8 +493,11 @@ export const calculateByLocation = async (req, res, next) => {
   }
 };
 
-// ─── POST /api/v1/evaluations/save ───
+
+// ═══════════════════════════════════════════════════════════════
+// POST /api/v1/evaluations/save
 // Save an evaluation result
+// ═══════════════════════════════════════════════════════════════
 export const saveEvaluation = async (req, res, next) => {
   try {
     const body = req.body;
@@ -413,17 +535,22 @@ export const saveEvaluation = async (req, res, next) => {
   }
 };
 
-// ─── GET /api/v1/evaluations/saved ───
+
+// ═══════════════════════════════════════════════════════════════
+// GET /api/v1/evaluations/saved
 // Get user's saved evaluations — flat list sorted by most recent
+// ═══════════════════════════════════════════════════════════════
 export const getSavedEvaluations = async (req, res, next) => {
   try {
     const evaluations = await Evaluation.find({ user: req.user._id })
       .sort({ createdAt: -1 })
-      .select("station.name county state simpleLabel totalScore period createdAt location");
+      .select("station.name stations stationMethod county state simpleLabel totalScore period createdAt location");
 
     const list = evaluations.map((e) => ({
       id: e._id,
       stationName: e.station?.name,
+      stationMethod: e.stationMethod || "single",
+      stationCount: e.stations?.length || 1,
       location: `${e.county}, ${e.state}`,
       simpleLabel: e.simpleLabel,
       totalScore: e.totalScore,
@@ -437,8 +564,11 @@ export const getSavedEvaluations = async (req, res, next) => {
   }
 };
 
-// ─── GET /api/v1/evaluations/:id ───
+
+// ═══════════════════════════════════════════════════════════════
+// GET /api/v1/evaluations/:id
 // Get single evaluation detail — same response shape as /calculate
+// ═══════════════════════════════════════════════════════════════
 export const getEvaluation = async (req, res, next) => {
   try {
     const e = await Evaluation.findOne({
@@ -450,6 +580,13 @@ export const getEvaluation = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Evaluation not found" });
     }
 
+    // Reconstruct allStationInfos from saved data
+    const savedStations = e.stations?.length > 0
+      ? e.stations.map((s) => ({ name: s.name, sid: s.sid, lat: s.lat, lon: s.lon, distance: s.distance }))
+      : [{ name: e.station?.name, sid: e.station?.sid, lat: e.station?.lat, lon: e.station?.lon, distance: e.station?.distance }];
+
+    const method = e.stationMethod || "single";
+
     const response = {
       // Summary
       simpleLabel: e.simpleLabel,
@@ -458,7 +595,7 @@ export const getEvaluation = async (req, res, next) => {
       maxScore: e.maxScore,
       period: e.period,
 
-      // Station
+      // Primary station (backward compat)
       station: {
         name: e.station?.name,
         sid: e.station?.sid,
@@ -466,6 +603,10 @@ export const getEvaluation = async (req, res, next) => {
         lon: e.station?.lon,
         distance: e.station?.distance ?? null,
       },
+
+      // All stations + method
+      stations: savedStations,
+      stationMethod: method,
 
       // Location
       location: { lat: e.location?.lat, lon: e.location?.lon },
@@ -485,7 +626,9 @@ export const getEvaluation = async (req, res, next) => {
 
       // Additional info
       additionalInfo: {
-        wetsStation: formatWetsStation(e.station?.name, e.station?.distance),
+        wetsStation: method === "triangulated"
+          ? formatTriangulatedWetsStation(savedStations)
+          : formatWetsStation(e.station?.name, e.station?.distance),
         location: `${e.county}, ${e.state}`,
         soilMapUnit: e.soilMapUnit?.name
           ? `${e.soilMapUnit.name} (${e.soilMapUnit.symbol})`
@@ -510,7 +653,10 @@ export const getEvaluation = async (req, res, next) => {
   }
 };
 
-// ─── DELETE /api/v1/evaluations/:id ───
+
+// ═══════════════════════════════════════════════════════════════
+// DELETE /api/v1/evaluations/:id
+// ═══════════════════════════════════════════════════════════════
 export const deleteEvaluation = async (req, res, next) => {
   try {
     const evaluation = await Evaluation.findOneAndDelete({
@@ -528,8 +674,11 @@ export const deleteEvaluation = async (req, res, next) => {
   }
 };
 
-// ─── GET /api/v1/evaluations/admin/all ───
+
+// ═══════════════════════════════════════════════════════════════
+// GET /api/v1/evaluations/admin/all
 // Admin: get all evaluations (for admin dashboard)
+// ═══════════════════════════════════════════════════════════════
 export const getAllEvaluations = async (req, res, next) => {
   try {
     const { page = 1, limit = 20, status, state } = req.query;

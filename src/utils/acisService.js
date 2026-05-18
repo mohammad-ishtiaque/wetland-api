@@ -312,6 +312,128 @@ export const getGrowingSeasonData = async (sid) => {
   }
 };
 
+// ─────────────────────────────────────────────────
+// 6. FIND N NEAREST VALID STATIONS (for triangulated fallback)
+//    Returns up to `count` stations that have valid WETS data,
+//    sorted by distance from (lat, lon).
+// ─────────────────────────────────────────────────
+export const findNearestValidStations = async (lat, lon, count = 3, maxMiles = 100) => {
+  const stations = await findStationsByBBox(lat, lon, maxMiles);
+
+  const validStations = [];
+  const log = [];
+
+  for (const station of stations) {
+    if (station.distance > maxMiles) break;
+    if (validStations.length >= count) break;
+
+    if (!station.hasPrecipData) {
+      log.push({
+        stationName: station.name,
+        sid: station.sid,
+        distance: Math.round(station.distance * 10) / 10,
+        status: "skipped",
+        reason: "No precipitation data covering 1971-2000",
+      });
+      continue;
+    }
+
+    const wets = await getWetsData(station.sid);
+
+    if (wets.isInsufficient) {
+      log.push({
+        stationName: station.name,
+        sid: station.sid,
+        distance: Math.round(station.distance * 10) / 10,
+        status: "insufficient",
+        reason: "Insufficient WETS data for 1971-2000",
+      });
+      continue;
+    }
+
+    validStations.push({ station, wetsData: wets });
+    log.push({
+      stationName: station.name,
+      sid: station.sid,
+      distance: Math.round(station.distance * 10) / 10,
+      status: "selected",
+      reason: `Valid WETS data — triangulated station ${validStations.length} of ${count}`,
+    });
+  }
+
+  return { validStations, log };
+};
+
+// ─────────────────────────────────────────────────
+// 7. AVERAGE WETS DATA from multiple stations
+//    Produces a single wetsData object with averaged thresholds
+// ─────────────────────────────────────────────────
+export const averageWetsData = (wetsDataArray) => {
+  const averaged = { isInsufficient: false, months: {} };
+
+  for (let m = 1; m <= 12; m++) {
+    const values = wetsDataArray
+      .map((w) => w.months?.[m])
+      .filter((v) => v && !v.insufficient);
+
+    if (values.length === 0) {
+      averaged.months[m] = { avg: null, less30: null, more30: null, insufficient: true };
+      continue;
+    }
+
+    averaged.months[m] = {
+      avg: round2(values.reduce((s, v) => s + v.avg, 0) / values.length),
+      less30: round2(values.reduce((s, v) => s + v.less30, 0) / values.length),
+      more30: round2(values.reduce((s, v) => s + v.more30, 0) / values.length),
+      insufficient: false,
+    };
+  }
+
+  return averaged;
+};
+
+// ─────────────────────────────────────────────────
+// 8. AVERAGE PRECIPITATION from multiple stations
+//    Calls getMonthlyPrecipitation for each, averages per month
+// ─────────────────────────────────────────────────
+export const averageMultiStationPrecipitation = async (
+  stations,
+  startMonth, startYear,
+  endMonth, endYear
+) => {
+  // Fetch precipitation for every station in parallel
+  const allPrecip = await Promise.all(
+    stations.map((s) =>
+      getMonthlyPrecipitation(s.sid, startMonth, startYear, endMonth, endYear)
+    )
+  );
+
+  // Merge: for each month, average non-null values
+  const merged = {};
+  const allMonthKeys = new Set(allPrecip.flatMap((p) => Object.keys(p).map(Number)));
+
+  for (const month of allMonthKeys) {
+    const readings = allPrecip
+      .map((p) => p[month])
+      .filter((r) => r && r.value !== null && r.value !== undefined);
+
+    if (readings.length === 0) {
+      merged[month] = { year: allPrecip[0]?.[month]?.year, month, value: null, raw: "M" };
+      continue;
+    }
+
+    const avgValue = round2(readings.reduce((s, r) => s + r.value, 0) / readings.length);
+    merged[month] = {
+      year: readings[0].year,
+      month,
+      value: avgValue,
+      raw: `avg(${readings.map((r) => r.raw).join(",")})`,
+    };
+  }
+
+  return merged;
+};
+
 // ─── HELPERS ───
 function extractCoopId(sids) {
   if (!sids) return null;
