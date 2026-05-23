@@ -14,6 +14,7 @@ import userRoutes from "./modules/user/user.routes.js";
 import evaluationRoutes from "./modules/evaluation/evaluation.routes.js";
 import stationRoutes from "./modules/station/station.routes.js";
 import settingsRoutes from "./modules/settings/settings.routes.js";
+import manageRoutes from "./modules/manage/manage.routes.js";
 
 dotenv.config();
 
@@ -37,6 +38,8 @@ app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/evaluations", evaluationRoutes);
 app.use("/api/v1/stations", stationRoutes);
 app.use("/api/v1/settings", settingsRoutes);
+app.use("/api/v1/manage", manageRoutes);
+
 
 // Health check
 app.get("/", (req, res) => {
