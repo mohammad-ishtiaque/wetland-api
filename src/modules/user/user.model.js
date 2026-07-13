@@ -43,6 +43,30 @@ const userSchema = new mongoose.Schema(
     // Profile
     avatar: String,
     lastLogin: Date,
+
+    // ─────────────────────────────────────────────────
+    // Subscription snapshot (fed by the RevenueCat webhook — see
+    // src/modules/subscription/). This is a point-in-time snapshot for
+    // fast admin queries; SubscriptionEvent holds the full history.
+    // This does NOT gate API access yet — recording only, per current
+    // scope. See subscription.controller.js for status-mapping logic.
+    // ─────────────────────────────────────────────────
+    subscription: {
+      status: {
+        type: String,
+        enum: ["none", "active", "cancelled", "expired", "billing_issue", "refunded"],
+        default: "none",
+      },
+      plan: { type: String, default: null }, // e.g. "monthly", "yearly" (derived from productId)
+      productId: { type: String, default: null },
+      entitlement: { type: String, default: null }, // e.g. "sitenorm Pro"
+      store: { type: String, default: null }, // APP_STORE, PLAY_STORE, STRIPE, etc.
+      willRenew: { type: Boolean, default: false },
+      purchasedAt: { type: Date, default: null },
+      expiresAt: { type: Date, default: null },
+      transactionId: { type: String, default: null },
+      updatedAt: { type: Date, default: null }, // last time a webhook event touched this
+    },
   },
   { timestamps: true }
 );

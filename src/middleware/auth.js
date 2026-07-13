@@ -16,7 +16,12 @@ export const protect = async (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Explicitly pin the accepted algorithm rather than letting jwt.verify
+    // infer it from the token header — defense-in-depth against algorithm-
+    // confusion style attacks, and keeps behavior predictable regardless of
+    // jsonwebtoken version defaults. Tokens in this app are always signed
+    // HS256 (see User.generateToken in user.model.js).
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
     req.user = await User.findById(decoded.id).select("-password");
 
     if (!req.user) {

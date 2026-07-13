@@ -1,0 +1,1772 @@
+{
+  "info": {
+    "_postman_id": "5244ee9d-1951-4e4e-b152-d021a6b878d2",
+    "name": "Clima Norm / Site Norm API — Full Collection",
+    "description": "Complete endpoint coverage for the wetland hydrology determination API (wetland-api backend). Built from a full source-code audit — every route file in src/modules/*/*.routes.js is represented here, nothing omitted.\n\nSETUP:\n1. Set the `baseUrl` collection variable (see its description) to your running server, e.g. http://localhost:5000/api/v1 for local, or https://api.sitenorm.com/api/v1 for production.\n2. Run Auth > Signup, then Auth > Verify OTP (after signup) with the real code emailed to you, OR just run Auth > Signin if you already have a verified account. Either one automatically saves the JWT into the `token` variable via a test script — every other request already uses {{token}} automatically, no manual copy-pasting required.\n3. Requests marked [Admin] require the logged-in user to have role:admin in the database — a normal signup will NOT have this. You'll need to manually flip a test user's role to 'admin' directly in MongoDB to test those.\n4. Public endpoints (marked noauth) work with no token at all — useful for confirming the server is reachable before debugging auth.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api/v1",
+      "description": "Base URL including /api/v1. Use http://localhost:5000/api/v1 for local dev, or https://api.sitenorm.com/api/v1 for production (matches the mobile app's configured baseURL)."
+    },
+    {
+      "key": "serverRoot",
+      "value": "http://localhost:5000",
+      "description": "Same host as baseUrl but WITHOUT /api/v1 — used only by the Health Check request, which hits the bare root path."
+    },
+    {
+      "key": "token",
+      "value": "",
+      "description": "JWT — auto-filled by Signin or Verify OTP's test script. Used as the Bearer token for every request in this collection by default."
+    },
+    {
+      "key": "evaluationId",
+      "value": "",
+      "description": "Auto-filled after Calculate (by GPS) — used by Get/Delete Evaluation By ID."
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/signup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signup"
+              ]
+            },
+            "description": "Creates an account and emails a 6-digit OTP. Account is unverified until /verify-otp succeeds. Use a real inbox you can check for the code.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane Farmer\",\n  \"email\": \"jane.farmer@example.com\",\n  \"password\": \"Password123!\",\n  \"confirmPassword\": \"Password123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify OTP (after signup)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/verify-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "verify-otp"
+              ]
+            },
+            "description": "Marks the account verified and returns a JWT. Replace otp with the real code emailed to the address used in Signup.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane.farmer@example.com\",\n  \"otp\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const data = pm.response.json();",
+                  "    if (data.data && data.data.token) {",
+                  "        pm.collectionVariables.set('token', data.data.token);",
+                  "        console.log('token saved to {{token}}');",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resend OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/resend-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "resend-otp"
+              ]
+            },
+            "description": "Re-sends a fresh signup-verification OTP to an unverified account.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane.farmer@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Signin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/signin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signin"
+              ]
+            },
+            "description": "Returns a JWT for a verified account. If the account isn't verified yet, this returns 403 and auto-sends a fresh OTP instead of a token.\n\nThe test script below auto-saves the token into {{token}} so every other request in this collection picks it up automatically.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane.farmer@example.com\",\n  \"password\": \"Password123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const data = pm.response.json();",
+                  "    if (data.data && data.data.token) {",
+                  "        pm.collectionVariables.set('token', data.data.token);",
+                  "        console.log('token saved to {{token}}');",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Emails a password-reset OTP (separate from the signup OTP).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane.farmer@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Reset OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/verify-reset-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "verify-reset-otp"
+              ]
+            },
+            "description": "Confirms the reset code is valid. Note: reset-password re-validates email+otp itself and does not actually require the resetToken this returns — you can go straight to Reset Password with the same otp.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane.farmer@example.com\",\n  \"otp\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "reset-password"
+              ]
+            },
+            "description": "Sets a new password using the still-valid reset OTP (10 minute expiry from when Forgot Password was called).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane.farmer@example.com\",\n  \"otp\": \"123456\",\n  \"newPassword\": \"NewPassword456!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Signup, email verification, login, password reset. All public (noauth) — these are how you obtain the JWT everything else needs."
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "profile"
+              ]
+            },
+            "description": "Returns the logged-in user's profile."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "profile"
+              ]
+            },
+            "description": "Currently only `name` is applied server-side even if you send other fields.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane A. Farmer\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "change-password"
+              ]
+            },
+            "description": "Requires the correct current password.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"Password123!\",\n  \"newPassword\": \"NewPassword456!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Avatar",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/avatar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "avatar"
+              ]
+            },
+            "description": "Multipart upload, field name must be 'avatar'. Images only (jpeg/png/gif/webp/bmp/tiff/avif — SVG deliberately blocked), max 5MB.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "logout"
+              ]
+            },
+            "description": "Client-side token invalidation is the app's responsibility — this endpoint mainly clears a cookie that isn't actually used by this Bearer-token-based API (harmless no-op server-side)."
+          },
+          "response": []
+        }
+      ],
+      "description": "Logged-in user's own profile. All require the {{token}} bearer auth set up in Auth."
+    },
+    {
+      "name": "Evaluations",
+      "item": [
+        {
+          "name": "Calculate (by GPS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/calculate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "evaluations",
+                "calculate"
+              ]
+            },
+            "description": "PRIMARY endpoint. Runs the full NRCS Procedure 2 determination from GPS coordinates: reverse-geocodes county, finds nearest AgACIS station(s) with valid WETS data (falls back to triangulating 3 nearest stations if the closest lacks data), pulls rainfall + soil map unit + growing season, and returns the full determination. This is what Quick Search calls directly.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 38.9072,\n  \"lon\": -77.0369,\n  \"observationDate\": \"2026-06-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const data = pm.response.json();",
+                  "    if (data.data && data.data.id) pm.collectionVariables.set('evaluationId', data.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Calculate (by State/County)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/calculate-by-location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "evaluations",
+                "calculate-by-location"
+              ]
+            },
+            "description": "Same result shape as /calculate, but resolves stations by state+county name (or 5-digit FIPS) instead of GPS. Uses the county centroid for soil lookup if no station has data directly in the county.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"state\": \"VA\",\n  \"county\": \"Fairfax\",\n  \"observationDate\": \"2026-06-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Save Evaluation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/save",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "evaluations",
+                "save"
+              ]
+            },
+            "description": "Saves a previously-calculated evaluation result against the logged-in user's account. In practice, send the `data` object returned by /calculate or /calculate-by-location as the body.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Paste the FULL JSON response body from a Calculate request here (its `data` object) \\u2014 the save endpoint stores whatever fields are sent, keyed by the logged-in user.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Saved Evaluations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/saved",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "evaluations",
+                "saved"
+              ]
+            },
+            "description": "Flat list of the logged-in user's saved evaluations, most recent first."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Evaluation By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/{{evaluationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "evaluations",
+                "{{evaluationId}}"
+              ]
+            },
+            "description": "Full detail for one saved evaluation — same response shape as /calculate. Auto-fails with 404 if the evaluation belongs to a different user."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Evaluation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/{{evaluationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "evaluations",
+                "{{evaluationId}}"
+              ]
+            },
+            "description": "Deletes one saved evaluation. Scoped to the logged-in user — cannot delete another user's evaluation."
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Get All Evaluations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/admin/all?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "evaluations",
+                "admin",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Admin-only. Every user's evaluations, paginated, with optional ?status= (matches simpleLabel, e.g. 'Normal') and ?state= filters, plus aggregate stats. Requires a JWT for a user with role:admin."
+          },
+          "response": []
+        }
+      ],
+      "description": "The core feature: NRCS Procedure 2 wetland climatic determination. calculate and calculate-by-location are the two ways to run a determination; save/saved/:id/delete manage a user's history."
+    },
+    {
+      "name": "Stations",
+      "item": [
+        {
+          "name": "Get States",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/stations/states",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stations",
+                "states"
+              ]
+            },
+            "description": "Static list of US states for the state-picker dropdown. No auth required.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Counties by State",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/stations/counties/VA",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stations",
+                "counties",
+                "VA"
+              ]
+            },
+            "description": "Counties (name + FIPS) for a given 2-letter state code. No auth required.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Nearest Stations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stations/nearest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stations",
+                "nearest"
+              ]
+            },
+            "description": "Finds AgACIS stations near a GPS point and flags which have usable WETS data — used for manual station picking when auto-search fails.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 38.9072,\n  \"lon\": -77.0369,\n  \"radiusMiles\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search More Stations (expand radius)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stations/search-more",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stations",
+                "search-more"
+              ]
+            },
+            "description": "'View More Nearby Stations' — expands the search radius by 10 miles (capped at 100) and re-searches.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 38.9072,\n  \"lon\": -77.0369,\n  \"currentRadius\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Stations by County",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stations/by-county",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stations",
+                "by-county"
+              ]
+            },
+            "description": "All AgACIS stations located within a given county FIPS code.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"countyFips\": \"51059\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reverse Geocode",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stations/reverse-geocode",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stations",
+                "reverse-geocode"
+              ]
+            },
+            "description": "GPS coordinates -> county name/FIPS + state code. Used internally by /evaluations/calculate, exposed here for standalone testing.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 38.9072,\n  \"lon\": -77.0369\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Weather station lookup/search — mostly used internally by Evaluations, exposed standalone for debugging station selection."
+    },
+    {
+      "name": "Settings",
+      "item": [
+        {
+          "name": "Get Terms (static)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/settings/terms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "settings",
+                "terms"
+              ]
+            },
+            "description": "Static, hardcoded Terms & Conditions content. NOTE: the app's frontend actually renders terms from the separate /manage/view-terms-conditions endpoint (DB-driven, admin-editable) — this static version currently appears to be unused by the shipped app. Flagged in the audit report; worth confirming with the team whether to keep, sync, or remove.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Privacy (static)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/settings/privacy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "settings",
+                "privacy"
+              ]
+            },
+            "description": "Static, hardcoded Privacy Policy content. Same duplication note as Get Terms — also, this static copy currently says payments are processed 'securely via Stripe', which is inaccurate (the app uses RevenueCat via Apple/Google in-app purchases, not Stripe). Flagged in the audit report since this endpoint is still publicly reachable even though the app doesn't call it.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Contact Form",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/settings/contact",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "settings",
+                "contact"
+              ]
+            },
+            "description": "Requires auth. Creates a support ticket tied to the logged-in user.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane Farmer\",\n  \"email\": \"jane.farmer@example.com\",\n  \"message\": \"I have a question about my evaluation results.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Static app content + authenticated contact form. See descriptions for a duplication/accuracy note vs. the Manage module below."
+    },
+    {
+      "name": "Manage (CMS)",
+      "item": [
+        {
+          "name": "[Admin] Add/Update Terms & Conditions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manage/add-terms-conditions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "add-terms-conditions"
+              ]
+            },
+            "description": "Upserts the single Terms & Conditions document (there's only ever one — a second call updates it, it doesn't create a duplicate).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"<h2>Terms & Conditions</h2><p>Full HTML content goes here.</p>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Terms & Conditions (JSON)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/get-terms-conditions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "get-terms-conditions"
+              ]
+            },
+            "description": "Public. Raw JSON of the CMS-managed terms document.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "View Terms & Conditions (HTML page)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/view-terms-conditions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "view-terms-conditions"
+              ]
+            },
+            "description": "Public. Renders the CMS terms document as a styled HTML page — this is the URL the mobile app actually links to.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Delete Terms & Conditions",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/delete-terms-conditions?id=REPLACE_WITH_DOCUMENT_ID",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "delete-terms-conditions"
+              ],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "REPLACE_WITH_DOCUMENT_ID",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Requires ?id= (the document's _id from Get Terms & Conditions)."
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Add/Update Privacy Policy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manage/add-privacy-policy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "add-privacy-policy"
+              ]
+            },
+            "description": "Upserts the single Privacy Policy document.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"<h2>Privacy Policy</h2><p>Full HTML content goes here.</p>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Privacy Policy (JSON)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/get-privacy-policy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "get-privacy-policy"
+              ]
+            },
+            "description": "Public. Raw JSON of the CMS-managed privacy policy.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "View Privacy Policy (HTML page)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/view-privacy-policy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "view-privacy-policy"
+              ]
+            },
+            "description": "Public. Rendered HTML page — the URL the mobile app actually links to.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Delete Privacy Policy",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/delete-privacy-policy?id=REPLACE_WITH_DOCUMENT_ID",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "delete-privacy-policy"
+              ],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "REPLACE_WITH_DOCUMENT_ID",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Requires ?id=."
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Add/Update About Us",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manage/add-about-us",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "add-about-us"
+              ]
+            },
+            "description": "Upserts the single About Us document.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"<h2>About Us</h2><p>Full HTML content goes here.</p>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get About Us",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/get-about-us",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "get-about-us"
+              ]
+            },
+            "description": "Public.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Delete About Us",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/delete-about-us?id=REPLACE_WITH_DOCUMENT_ID",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "delete-about-us"
+              ],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "REPLACE_WITH_DOCUMENT_ID",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Requires ?id=."
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Add FAQ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manage/add-faq",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "add-faq"
+              ]
+            },
+            "description": "`role` enum is currently STUDENT/TEACHER/SCHOOL — this looks like leftover boilerplate from a different (education) project template and doesn't obviously map to this app's actual users (consultants/landowners). Flagged in the audit report — confirm the intended real values with the team before publishing FAQs against this field.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"How is the growing season calculated?\",\n  \"description\": \"Using the median (50th percentile) date of the last spring / first fall 28\\u00b0F freeze across the 1971-2000 period, per NRCS Procedure 2.\",\n  \"role\": \"STUDENT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Update FAQ",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manage/update-faq",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "update-faq"
+              ]
+            },
+            "description": "All four fields are required by the current validation, even if only changing one.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"faqId\": \"REPLACE_WITH_FAQ_ID\",\n  \"question\": \"Updated question text\",\n  \"description\": \"Updated answer text\",\n  \"role\": \"STUDENT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get FAQs by Role",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/get-faq?role=STUDENT",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "get-faq"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "STUDENT",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Public. ?role= is required (see note on Add FAQ about the role enum).",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Delete FAQ",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/delete-faq?faqId=REPLACE_WITH_FAQ_ID",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "delete-faq"
+              ],
+              "query": [
+                {
+                  "key": "faqId",
+                  "value": "REPLACE_WITH_FAQ_ID",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Requires ?faqId=."
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Add/Update Contact Us",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manage/add-contact-us",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "add-contact-us"
+              ]
+            },
+            "description": "Upserts the single Contact Us document. email + phone are required; social links are optional.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"support@sitenorm.com\",\n  \"phone\": \"+1-555-0100\",\n  \"facebookLink\": \"https://facebook.com/sitenorm\",\n  \"linkedinLink\": \"https://linkedin.com/company/sitenorm\",\n  \"instagramLink\": \"https://instagram.com/sitenorm\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Contact Us",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/get-contact-us",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "get-contact-us"
+              ]
+            },
+            "description": "Public.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Delete Contact Us",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/delete-contact-us?id=REPLACE_WITH_DOCUMENT_ID",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "delete-contact-us"
+              ],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "REPLACE_WITH_DOCUMENT_ID",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Requires ?id=."
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Support Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manage/support",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "support"
+              ]
+            },
+            "description": "Public — no auth required (unlike /settings/contact, which does require auth). This is the actual client-reported-bug-style feedback channel.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Can't see growing season data\",\n  \"opinion\": \"I ran an evaluation and the growing season field says Not available even though the location has weather data.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] List Support Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/support?page=1&limit=10&status=PENDING&sortBy=createdAt&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "support"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "disabled": false
+                },
+                {
+                  "key": "status",
+                  "value": "PENDING",
+                  "disabled": false
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt",
+                  "disabled": false
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Admin-only. Filters: ?status=PENDING|COMPLETED, ?searchTerm= (matches subject/opinion), ?sortBy=, ?sortOrder=asc|desc. Pagination is validated (page/limit both clamped) since the production audit."
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Get Support Request By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/support/REPLACE_WITH_SUPPORT_ID",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "support",
+                "REPLACE_WITH_SUPPORT_ID"
+              ]
+            },
+            "description": "Admin-only."
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Update Support Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manage/support/REPLACE_WITH_SUPPORT_ID/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "support",
+                "REPLACE_WITH_SUPPORT_ID",
+                "status"
+              ]
+            },
+            "description": "Admin-only. status must be exactly PENDING or COMPLETED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"COMPLETED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Delete Support Request",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/manage/support/REPLACE_WITH_SUPPORT_ID",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "manage",
+                "support",
+                "REPLACE_WITH_SUPPORT_ID"
+              ]
+            },
+            "description": "Admin-only."
+          },
+          "response": []
+        }
+      ],
+      "description": "Admin-editable content (Terms, Privacy, About, FAQ, Contact) plus the public support-ticket intake. This is what the mobile app actually links to for Terms/Privacy."
+    },
+    {
+      "name": "Subscription",
+      "item": [
+        {
+          "name": "[Webhook] RevenueCat Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/revenuecat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "revenuecat"
+              ]
+            },
+            "description": "Simulates a RevenueCat webhook delivery. In production this is called by RevenueCat's servers, authenticated via an 'Authorization' header matching REVENUECAT_WEBHOOK_SECRET (add that header manually here if the env var is set). app_user_id must be a real User _id from your database for the status update to actually apply to a user — otherwise the event is still recorded but no user is updated.\n\nTry other event types by changing `type` to: RENEWAL, CANCELLATION, EXPIRATION, BILLING_ISSUE, REFUND, REFUND_REVERSED, TEST. For TRANSFER, use the separate example below — it has a different payload shape (no app_user_id at all).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": {\n    \"id\": \"evt_test_12345\",\n    \"type\": \"INITIAL_PURCHASE\",\n    \"app_user_id\": \"REPLACE_WITH_REAL_USER_ID\",\n    \"product_id\": \"sitenorm_pro_yearly:yearly\",\n    \"entitlement_ids\": [\n      \"sitenorm Pro\"\n    ],\n    \"store\": \"PLAY_STORE\",\n    \"environment\": \"SANDBOX\",\n    \"price\": 39.99,\n    \"currency\": \"USD\",\n    \"transaction_id\": \"txn_test_1\",\n    \"original_transaction_id\": \"txn_test_1\",\n    \"purchased_at_ms\": 1750000000000,\n    \"expiration_at_ms\": 1781536000000\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Webhook] RevenueCat TRANSFER Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/revenuecat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "revenuecat"
+              ]
+            },
+            "description": "TRANSFER events use a different field shape than every other RevenueCat event — no app_user_id, only transferred_from/transferred_to arrays (per RevenueCat's official docs). The old owner's status is set to expired, the new owner's to active. Both IDs must be real User _ids to see the effect.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": {\n    \"id\": \"evt_test_transfer_1\",\n    \"type\": \"TRANSFER\",\n    \"store\": \"APP_STORE\",\n    \"environment\": \"SANDBOX\",\n    \"transferred_from\": [\n      \"REPLACE_WITH_OLD_OWNER_USER_ID\"\n    ],\n    \"transferred_to\": [\n      \"REPLACE_WITH_NEW_OWNER_USER_ID\"\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] List Subscriptions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/subscriptions?page=1&limit=20&status=active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "subscriptions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Admin-only. Current subscription status per user. ?status= filters to one status (active/cancelled/expired/billing_issue/refunded/none); omit it to see everyone with any subscription history. Response includes aggregate `stats` counts by status."
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] List Subscription Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/subscriptions/transactions?page=1&limit=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "subscriptions",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "30",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Admin-only. Full transaction/event history (what the admin dashboard's 'transaction history list' is built from). Optional ?userId= to scope to one user, ?eventType= to filter by RevenueCat event type."
+          },
+          "response": []
+        }
+      ],
+      "description": "RevenueCat webhook (records purchase/cancellation/refund/transfer events and updates user status) + admin visibility into subscribers and transaction history."
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serverRoot}}/",
+              "host": [
+                "{{serverRoot}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Root endpoint, NOT under /api/v1 — confirms the server process is up and responding at all before testing anything else.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Basic server-is-up check."
+    }
+  ]
+}

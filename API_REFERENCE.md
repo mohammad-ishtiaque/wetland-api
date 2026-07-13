@@ -308,6 +308,37 @@ GET /settings/privacy
 
 ---
 
+## 💳 SUBSCRIPTION MODULE (RevenueCat)
+
+The app gates access via RevenueCat (client-side, `purchases_flutter`). This module makes subscription state visible on the backend — **it does not currently enforce subscription status on any route.** It's record-keeping/admin-visibility only, matching current scope.
+
+### Webhook: RevenueCat → Backend
+```
+POST /api/v1/webhooks/revenuecat
+Auth: shared-secret header (Authorization: <REVENUECAT_WEBHOOK_SECRET> or "Bearer <secret>"), NOT a user JWT
+```
+Configure in RevenueCat Dashboard → Project Settings → Integrations → Webhooks: point it at this URL, set the Authorization header value to match `REVENUECAT_WEBHOOK_SECRET` in `.env`. RevenueCat's `app_user_id` is expected to equal our own `User._id` (this is already how the Flutter app configures the SDK — see `RevenueCatService.init(userId)`).
+
+Every event is stored in `SubscriptionEvent` (full history). `User.subscription` is updated with a current-state snapshot for fast queries. See `subscription.controller.js` for exact status-mapping rules per RevenueCat event type (`CANCELLATION` keeps status `active` until `EXPIRATION` actually arrives — this matches RevenueCat's own intended integration pattern, not an arbitrary choice).
+
+### Screen: Admin — Subscribers list
+```
+GET /api/v1/admin/subscriptions?status=active&page=1&limit=20
+Headers: { Authorization: "Bearer <admin token>" }
+
+→ { subscribers: [{ name, email, subscription: {...} }], pagination, stats: { active: N, expired: N, ... } }
+```
+
+### Screen: Admin — Transaction history
+```
+GET /api/v1/admin/subscriptions/transactions?userId=<id>&page=1&limit=30
+Headers: { Authorization: "Bearer <admin token>" }
+
+→ { transactions: [{ user, eventType, plan, amount, currency, store, status, date, transactionId, ... }], pagination }
+```
+
+---
+
 ## 📁 PROJECT STRUCTURE
 
 ```
@@ -335,9 +366,13 @@ src/
 │   ├── station/
 │   │   ├── station.controller.js      # nearest, search, geocode
 │   │   └── station.routes.js
-│   └── settings/
-│       ├── settings.controller.js     # contact, terms, privacy
-│       └── settings.routes.js
+│   ├── settings/
+│   │   ├── settings.controller.js     # contact, terms, privacy
+│   │   └── settings.routes.js
+│   └── subscription/
+│       ├── subscriptionEvent.model.js # RevenueCat event/transaction history
+│       ├── subscription.controller.js # webhook + admin subscriber/transaction queries
+│       └── subscription.routes.js
 └── utils/
     ├── acisService.js                 # ACIS API calls (stations + precip + WETS)
     ├── externalServices.js            # Soil API + Reverse geocoding
@@ -377,3 +412,6 @@ src/
 | POST | `/settings/contact` | ✅ | Contact & Support |
 | GET | `/settings/terms` | ❌ | Terms & Conditions |
 | GET | `/settings/privacy` | ❌ | Privacy & Policy |
+| POST | `/webhooks/revenuecat` | 🔑 Webhook secret | RevenueCat → backend event sync |
+| GET | `/admin/subscriptions` | 🔒 Admin | Admin dashboard — subscriber list |
+| GET | `/admin/subscriptions/transactions` | 🔒 Admin | Admin dashboard — transaction history |

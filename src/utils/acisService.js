@@ -95,9 +95,67 @@ export const getMonthlyPrecipitation = async (sid, startMonth, startYear, endMon
         interval: "mly",
         duration: "mly",
         reduce: "sum",
+        // Was unset, which ACIS defaults to maxmissing:0 — a single missing
+        // or not-yet-finalized daily reading anywhere in the month caused
+        // ACIS to return "M" (null) for the ENTIRE month's sum, even when
+        // the station otherwise had good data. Recent months (the only ones
+        // this function is ever called with — actual/recent rainfall, not
+        // historical normals) are the most likely to have at least one late
+        // or unflagged day before final QC, so this silently nulled out
+        // real, available rainfall data across multiple consecutive months.
+        // getWetsData() below already uses maxmissing:5 for the same kind
+        // of query against the same station type — matching that same
+        // tolerance here instead of leaving this one stricter by accident.
+        // NOTE: live-tested and confirmed this alone does NOT fix the
+        // LAKEHURST NAS (sid 284596) null-rainfall case — ACIS returns "M"
+        // for that identifier regardless. Kept anyway since it's a correct,
+        // low-risk alignment with getWetsData's own tolerance. See TEMP
+        // DEBUG #2 below — investigating a second, more likely hypothesis
+        // (dead COOP identifier vs. live GHCN identifier for the same
+        // physical station).
+        maxmissing: 5,
       },
     ],
   });
+
+  // TEMP DEBUG — remove after diagnosing the null-rainfall issue.
+  // Prints exactly what ACIS sent back for this station/date range, straight
+  // to the server terminal, so we can see raw ACIS output instead of
+  // guessing whether the code change is even being executed.
+  console.log(
+    `[DEBUG getMonthlyPrecipitation] sid=${sid} sdate=${sdate} edate=${edate} ACIS raw response:`,
+    JSON.stringify(data)
+  );
+
+  // TEMP DEBUG #2 — testing an alternate hypothesis: the COOP identifier
+  // (extractCoopId's first preference, "...284596 2...") has great historical
+  // coverage (that's why getWetsData works fine with it) but may have gone
+  // dead for RECENT reporting if this station switched to automated
+  // ASOS/GHCN-Daily reporting under a different identifier at some point.
+  // The metadata ACIS just returned above already lists every identifier
+  // this station is known by (data.meta.sids) — pull out the GHCN-Daily one
+  // (type " 6", e.g. "USW00014780 6") and re-query the SAME date range with
+  // it, purely to compare against the COOP result logged above.
+  try {
+    const ghcnSidEntry = data.meta?.sids?.find((s) => s.endsWith(" 6"));
+    const ghcnSid = ghcnSidEntry ? ghcnSidEntry.split(" ")[0] : null;
+    if (ghcnSid && ghcnSid !== sid) {
+      const { data: ghcnData } = await axios.post(`${ACIS_BASE_URL}/StnData`, {
+        sid: ghcnSid,
+        sdate,
+        edate,
+        elems: [{ name: "pcpn", interval: "mly", duration: "mly", reduce: "sum", maxmissing: 5 }],
+      });
+      console.log(
+        `[DEBUG getMonthlyPrecipitation] COMPARISON via GHCN sid=${ghcnSid} same window ACIS raw response:`,
+        JSON.stringify(ghcnData)
+      );
+    } else {
+      console.log(`[DEBUG getMonthlyPrecipitation] No distinct GHCN sid found to compare against.`);
+    }
+  } catch (debugErr) {
+    console.log(`[DEBUG getMonthlyPrecipitation] GHCN comparison query failed:`, debugErr.message);
+  }
 
   const result = {};
   if (data.data) {
@@ -211,72 +269,68 @@ export const getGrowingSeasonData = async (sid) => {
 
   try {
     /*
-     * We request two yearly-interval elements from ACIS, both using add:"date"
-     * so each row contains the actual date on which the threshold was crossed.
+     * We fetch raw daily minimum-temperature values for the full 30-year
+     * WETS period in one request and compute the last spring freeze / first
+     * fall freeze ourselves in JS, per year.
      *
-     * Element 1 — last spring freeze (last date min-temp ≤ 28°F before summer):
-     *   season_start: "1-1"  → calendar year (Jan–Dec)
-     *   reduce: "last_le_28" → last occurrence in that season = last spring freeze
+     * This replaces an earlier attempt to have ACIS do this server-side via
+     * duration:"std" + season_start + a last_le_28/first_le_28 reduce. That
+     * request was syntactically valid (confirmed against ACIS's own docs and
+     * worked examples) but semantically wrong for this use case: "std"
+     * means "season-to-date," and with interval:[1,0,0] stepping year by
+     * year, each row's "season-to-date" window only ever contained the
+     * single day matching season_start itself — confirmed via a raw
+     * response dump where every non-missing row resolved to exactly
+     * January 1, every station, every year, which is not real weather data.
      *
-     * Element 2 — first fall freeze (first date min-temp ≤ 28°F after summer):
-     *   season_start: "7-1"  → Jul–Jun season
-     *   reduce: "first_le_28"→ first occurrence after July = first autumn freeze
+     * Fetching daily values and reducing client-side avoids relying on
+     * ACIS's season-to-date semantics for a multi-year lookback entirely —
+     * same simple {interval:"dly", duration:"dly"} request shape already
+     * proven reliable for the rainfall/WETS calls elsewhere in this file.
      */
     const { data } = await axios.post(`${ACIS_BASE_URL}/StnData`, {
       sid,
       sdate: `${WETS_YEAR_START}-01-01`,
       edate: `${WETS_YEAR_END}-12-31`,
-      elems: [
-        {
-          name: "mint",
-          interval: [1, 0, 0],
-          duration: "std",
-          season_start: "1-1",
-          reduce: { reduce: "last_le_28", add: "date" },
-        },
-        {
-          name: "mint",
-          interval: [1, 0, 0],
-          duration: "std",
-          season_start: "7-1",
-          reduce: { reduce: "first_le_28", add: "date" },
-        },
-      ],
+      elems: [{ name: "mint", interval: "dly", duration: "dly" }],
     });
 
-    if (!data.data || data.data.length < 10) {
+    // ~30 years of daily data should be close to 10,950 rows; require a
+    // reasonable majority of that before trusting the result.
+    if (!data.data || data.data.length < 3000) {
       cache.set(cacheKey, EMPTY);
       return EMPTY;
     }
 
-    const springDOYs = []; // day-of-year for last spring freeze, each year
-    const fallDOYs = []; // day-of-year for first fall  freeze, each year
+    // Group valid daily [date, mint] readings by calendar year
+    const byYear = {};
+    for (const [dateStr, rawVal] of data.data) {
+      if (rawVal === "M" || rawVal === undefined) continue;
+      const val = rawVal === "T" ? 0 : parseFloat(rawVal);
+      if (isNaN(val)) continue;
+      const year = parseInt(dateStr.split("-")[0], 10);
+      (byYear[year] ??= []).push({ date: dateStr, val, doy: dateToDOY(dateStr) });
+    }
 
-    for (const row of data.data) {
-      // row: [ "YYYY-MM-DD", springElem, fallElem ]
-      // Each elem with add:"date" is: [ numericValue, "YYYY-MM-DD" ] or "M" if missing
-      const springElem = row[1];
-      const fallElem = row[2];
+    const springDOYs = []; // day-of-year of last spring freeze, per year
+    const fallDOYs = []; // day-of-year of first fall freeze, per year
 
-      // Extract date strings robustly (handle both array and plain-string forms)
-      const springDateStr = Array.isArray(springElem) ? springElem[1] : null;
-      const fallDateStr = Array.isArray(fallElem) ? fallElem[1] : null;
-
-      if (springDateStr && springDateStr !== "M" && springDateStr.length >= 8) {
-        const doy = dateToDOY(springDateStr);
-        if (doy !== null && doy >= 1 && doy <= 200) {
-          // Sanity-check: spring freeze must be before July (DOY ≤ 200 ≈ July 18)
-          springDOYs.push(doy);
-        }
+    for (const days of Object.values(byYear)) {
+      // Last spring freeze: latest day on/before ~June 30 (DOY ≤ 181) with mint ≤ 28°F
+      let lastSpring = null;
+      for (const d of days) {
+        if (d.doy === null || d.doy > 181 || d.val > 28) continue;
+        if (!lastSpring || d.doy > lastSpring.doy) lastSpring = d;
       }
+      if (lastSpring) springDOYs.push(lastSpring.doy);
 
-      if (fallDateStr && fallDateStr !== "M" && fallDateStr.length >= 8) {
-        const doy = dateToDOY(fallDateStr);
-        if (doy !== null && doy >= 182) {
-          // Sanity-check: fall freeze must be on/after July 1 (DOY ≥ 182)
-          fallDOYs.push(doy);
-        }
+      // First fall freeze: earliest day on/after July 1 (DOY ≥ 182) with mint ≤ 28°F
+      let firstFall = null;
+      for (const d of days) {
+        if (d.doy === null || d.doy < 182 || d.val > 28) continue;
+        if (!firstFall || d.doy < firstFall.doy) firstFall = d;
       }
+      if (firstFall) fallDOYs.push(firstFall.doy);
     }
 
     // Need at least half the years to compute a reliable median

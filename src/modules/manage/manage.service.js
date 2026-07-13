@@ -23,9 +23,10 @@ const requireFields = (payload, fields) => {
   }
 };
 
-const getPositiveInt = (value, fallback) => {
+const getPositiveInt = (value, fallback, max) => {
   const parsed = Number.parseInt(value, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+  const result = Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+  return max ? Math.min(result, max) : result;
 };
 
 export const addTermsConditions = async (payload) => {
@@ -201,7 +202,9 @@ export const addSupport = async (payload) => {
 
 export const getSupport = async (query) => {
   const page = getPositiveInt(query?.page, 1);
-  const limit = getPositiveInt(query?.limit, 10);
+  // Capped at 100 — previously unbounded, so a request could pull the
+  // entire Support collection in a single page.
+  const limit = getPositiveInt(query?.limit, 10, 100);
   const skip = (page - 1) * limit;
 
   const filters = {};

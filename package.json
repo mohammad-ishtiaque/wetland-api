@@ -4,6 +4,9 @@
   "type": "module",
   "description": "AgroClima Wetland Climate Evaluation Backend API",
   "main": "src/server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js"

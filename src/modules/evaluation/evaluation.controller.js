@@ -13,6 +13,7 @@ import { getSoilMapUnit, reverseGeocode, getCountiesByState } from "../../utils/
 import { getPriorMonths, haversineDistance } from "../../utils/geo.js";
 import { calculateDetermination } from "../../utils/determination.js";
 import { MAX_STATION_DISTANCE_MILES } from "../../config/constants.js";
+import { parsePagination } from "../../utils/pagination.js";
 
 // ─── HELPERS ───
 
@@ -59,10 +60,15 @@ export const calculate = async (req, res, next) => {
   try {
     const { lat, lon, observationDate, countyFips: inputFips } = req.body;
 
-    if (!lat || !lon || !observationDate) {
+    const missing = [];
+    if (!lat) missing.push("lat");
+    if (!lon) missing.push("lon");
+    if (!observationDate) missing.push("observationDate");
+
+    if (missing.length > 0) {
       return res.status(400).json({
         success: false,
-        message: "lat, lon, and observationDate are required",
+        message: `${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} required`,
       });
     }
 
@@ -269,10 +275,15 @@ export const calculateByLocation = async (req, res, next) => {
   try {
     const { state, county, observationDate } = req.body;
 
-    if (!state || !county || !observationDate) {
+    const missing = [];
+    if (!state) missing.push("state");
+    if (!county) missing.push("county");
+    if (!observationDate) missing.push("observationDate");
+
+    if (missing.length > 0) {
       return res.status(400).json({
         success: false,
-        message: "state, county, and observationDate are required",
+        message: `${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} required`,
       });
     }
 
@@ -681,7 +692,11 @@ export const deleteEvaluation = async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════
 export const getAllEvaluations = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, status, state } = req.query;
+    const { status, state } = req.query;
+    // page=0 / negative / non-numeric page previously produced a negative
+    // or NaN skip, which MongoDB throws on — same bug class found and fixed
+    // in subscription.controller.js during the production audit.
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 20 });
 
     const filter = {};
     if (status) filter.simpleLabel = status;
@@ -690,8 +705,8 @@ export const getAllEvaluations = async (req, res, next) => {
     const evaluations = await Evaluation.find(filter)
       .populate("user", "name email")
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .skip(skip)
+      .limit(limit);
 
     const total = await Evaluation.countDocuments(filter);
 
@@ -704,7 +719,7 @@ export const getAllEvaluations = async (req, res, next) => {
       success: true,
       data: {
         evaluations,
-        pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / limit) },
+        pagination: { page, limit, total, pages: Math.ceil(total / limit) },
         stats: stats.reduce((acc, s) => ({ ...acc, [s._id || "unknown"]: s.count }), {}),
       },
     });

@@ -1,3 +1,10 @@
 .env
 uploads/
 node_modules/
+
+# Dev-only diagnostic/test scripts — not part of the shipped API, should
+# never end up in a production deploy or the client-delivered repo.
+diagnose.js
+test-api.js
+test-null.js
+test-subscription.mjs

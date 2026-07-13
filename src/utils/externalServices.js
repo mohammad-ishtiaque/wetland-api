@@ -32,10 +32,14 @@ export const getSoilMapUnit = async (lat, lon) => {
       return { muname: null, musym: null, mukey: null };
     }
 
+    // SDA's Tabular/post.rest returns each row as a POSITIONAL ARRAY, not a
+    // named object — even with format:"JSON". Index by column position,
+    // matching the SELECT order above: muname, musym, mukey.
+    const row = table[0];
     const result = {
-      muname: table[0].muname,
-      musym: table[0].musym,
-      mukey: table[0].mukey,
+      muname: row[0] ?? null,
+      musym: row[1] ?? null,
+      mukey: row[2] ?? null,
     };
 
     cache.set(cacheKey, result);
