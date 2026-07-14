@@ -106,56 +106,20 @@ export const getMonthlyPrecipitation = async (sid, startMonth, startYear, endMon
         // getWetsData() below already uses maxmissing:5 for the same kind
         // of query against the same station type — matching that same
         // tolerance here instead of leaving this one stricter by accident.
-        // NOTE: live-tested and confirmed this alone does NOT fix the
-        // LAKEHURST NAS (sid 284596) null-rainfall case — ACIS returns "M"
-        // for that identifier regardless. Kept anyway since it's a correct,
-        // low-risk alignment with getWetsData's own tolerance. See TEMP
-        // DEBUG #2 below — investigating a second, more likely hypothesis
-        // (dead COOP identifier vs. live GHCN identifier for the same
-        // physical station).
+        // NOTE: for LAKEHURST NAS (sid 284596) specifically, this alone
+        // does not help — confirmed via NOAA's own WETS documentation that
+        // this station's precipitation gauge stopped reporting in 2002.
+        // Kept anyway since it's a correct, low-risk alignment with
+        // getWetsData's own tolerance, and helps other stations with
+        // ordinary partial-missing-day gaps. See resolveRainfallWithFallback
+        // in evaluation.controller.js for how stations like Lakehurst NAS
+        // (dead precipitation feed despite valid historical normals) are
+        // now handled — recent rainfall falls back to a nearby station
+        // while historical normals stay from the original station.
         maxmissing: 5,
       },
     ],
   });
-
-  // TEMP DEBUG — remove after diagnosing the null-rainfall issue.
-  // Prints exactly what ACIS sent back for this station/date range, straight
-  // to the server terminal, so we can see raw ACIS output instead of
-  // guessing whether the code change is even being executed.
-  console.log(
-    `[DEBUG getMonthlyPrecipitation] sid=${sid} sdate=${sdate} edate=${edate} ACIS raw response:`,
-    JSON.stringify(data)
-  );
-
-  // TEMP DEBUG #2 — testing an alternate hypothesis: the COOP identifier
-  // (extractCoopId's first preference, "...284596 2...") has great historical
-  // coverage (that's why getWetsData works fine with it) but may have gone
-  // dead for RECENT reporting if this station switched to automated
-  // ASOS/GHCN-Daily reporting under a different identifier at some point.
-  // The metadata ACIS just returned above already lists every identifier
-  // this station is known by (data.meta.sids) — pull out the GHCN-Daily one
-  // (type " 6", e.g. "USW00014780 6") and re-query the SAME date range with
-  // it, purely to compare against the COOP result logged above.
-  try {
-    const ghcnSidEntry = data.meta?.sids?.find((s) => s.endsWith(" 6"));
-    const ghcnSid = ghcnSidEntry ? ghcnSidEntry.split(" ")[0] : null;
-    if (ghcnSid && ghcnSid !== sid) {
-      const { data: ghcnData } = await axios.post(`${ACIS_BASE_URL}/StnData`, {
-        sid: ghcnSid,
-        sdate,
-        edate,
-        elems: [{ name: "pcpn", interval: "mly", duration: "mly", reduce: "sum", maxmissing: 5 }],
-      });
-      console.log(
-        `[DEBUG getMonthlyPrecipitation] COMPARISON via GHCN sid=${ghcnSid} same window ACIS raw response:`,
-        JSON.stringify(ghcnData)
-      );
-    } else {
-      console.log(`[DEBUG getMonthlyPrecipitation] No distinct GHCN sid found to compare against.`);
-    }
-  } catch (debugErr) {
-    console.log(`[DEBUG getMonthlyPrecipitation] GHCN comparison query failed:`, debugErr.message);
-  }
 
   const result = {};
   if (data.data) {

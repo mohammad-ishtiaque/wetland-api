@@ -26,6 +26,18 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Trust exactly one hop of reverse proxy (nginx on this same EC2 instance,
+// sitting in front of the Node process and forwarding to it). Without this,
+// Express ignores X-Forwarded-For entirely and express-rate-limit throws
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every request in production, because
+// it sees a forwarded-for header it isn't configured to trust — meaning
+// every user behind nginx was being rate-limited as if they shared nginx's
+// single internal IP, not their own. Set to 1 (not `true`) specifically
+// because there is exactly one proxy hop here — trusting more hops than
+// actually exist would let a malicious client spoof X-Forwarded-For to fake
+// their IP and dodge rate limits.
+app.set("trust proxy", 1);
+
 // ─── MIDDLEWARE ───
 app.use(helmet());
 app.use(cors());
