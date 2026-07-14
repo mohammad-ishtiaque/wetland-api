@@ -14,6 +14,7 @@ const monthDetailSchema = new mongoose.Schema(
     conditionValue: Number,
     weight: Number,
     score: Number,
+    error: String, // e.g. "Insufficient data" — set when rainfall is null
   },
   { _id: false }
 );
@@ -62,10 +63,25 @@ const evaluationSchema = new mongoose.Schema(
       },
     ],
 
-    // How the determination was made
+    // Station supplying recent/actual rainfall, when different from `station`
+    // (decoupled-fallback case — see resolveRainfallWithFallback in
+    // evaluation.controller.js). Null/absent when the same station covers
+    // both historical normals and recent rainfall.
+    rainfallStation: {
+      name: String,
+      sid: String,
+      lat: Number,
+      lon: Number,
+      distance: Number,
+    },
+
+    // How the determination was made. "decoupled" added alongside the
+    // station-fallback feature — was missing here before, which meant any
+    // save of a decoupled result would fail Mongoose enum validation
+    // outright (not just drop the field — reject the whole save).
     stationMethod: {
       type: String,
-      enum: ["single", "triangulated"],
+      enum: ["single", "triangulated", "decoupled"],
       default: "single",
     },
 
@@ -113,6 +129,20 @@ const evaluationSchema = new mongoose.Schema(
         reason: String,
       },
     ],
+
+    // ─── FULL-FIDELITY SNAPSHOT ───
+    // The complete `data` object exactly as the app received it from
+    // /calculate or /calculate-by-location, stored verbatim. The structured
+    // fields above exist for indexing/filtering (list view, admin
+    // dashboard); this field exists so getEvaluation() can hand back
+    // *exactly* what was calculated, with zero manual reconstruction and
+    // zero risk of drifting out of sync every time the /calculate response
+    // shape gains a new field (which is exactly how the previous
+    // reconstruction logic lost rainfallStation and the "decoupled"
+    // stationMethod value). See getEvaluation() in evaluation.controller.js.
+    rawResponse: {
+      type: mongoose.Schema.Types.Mixed,
+    },
   },
   { timestamps: true }
 );

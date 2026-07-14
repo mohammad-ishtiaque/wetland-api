@@ -687,6 +687,10 @@ export const saveEvaluation = async (req, res, next) => {
       user: req.user._id,
       ...body,
       monthDetails,
+      // Store the exact response body the app received from /calculate,
+      // verbatim. This is what getEvaluation() now returns for full
+      // fidelity — see the schema comment on rawResponse for why.
+      rawResponse: body,
     };
 
     const evaluation = await Evaluation.create(evaluationData);
@@ -746,6 +750,20 @@ export const getEvaluation = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Evaluation not found" });
     }
 
+    // Full-fidelity path: evaluations saved after the rawResponse fix carry
+    // the exact /calculate response body they were created from. Return it
+    // as-is instead of manually rebuilding the shape field-by-field — that
+    // manual rebuild is what silently dropped rainfallStation and the
+    // "decoupled" stationMethod value in the first place, and will keep
+    // falling out of sync every time /calculate's response shape changes.
+    if (e.rawResponse) {
+      return res.json({
+        success: true,
+        data: { ...e.rawResponse, savedAt: e.createdAt },
+      });
+    }
+
+    // Fallback path: evaluations saved before this fix have no rawResponse.
     // Reconstruct allStationInfos from saved data
     const savedStations = e.stations?.length > 0
       ? e.stations.map((s) => ({ name: s.name, sid: s.sid, lat: s.lat, lon: s.lon, distance: s.distance }))

@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "5244ee9d-1951-4e4e-b152-d021a6b878d2",
-    "name": "Clima Norm / Site Norm API — Full Collection",
-    "description": "Complete endpoint coverage for the wetland hydrology determination API (wetland-api backend). Built from a full source-code audit — every route file in src/modules/*/*.routes.js is represented here, nothing omitted.\n\nSETUP:\n1. Set the `baseUrl` collection variable (see its description) to your running server, e.g. http://localhost:5000/api/v1 for local, or https://api.sitenorm.com/api/v1 for production.\n2. Run Auth > Signup, then Auth > Verify OTP (after signup) with the real code emailed to you, OR just run Auth > Signin if you already have a verified account. Either one automatically saves the JWT into the `token` variable via a test script — every other request already uses {{token}} automatically, no manual copy-pasting required.\n3. Requests marked [Admin] require the logged-in user to have role:admin in the database — a normal signup will NOT have this. You'll need to manually flip a test user's role to 'admin' directly in MongoDB to test those.\n4. Public endpoints (marked noauth) work with no token at all — useful for confirming the server is reachable before debugging auth.",
+    "name": "Clima Norm / Site Norm API \u2014 Full Collection",
+    "description": "Complete endpoint coverage for the wetland hydrology determination API (wetland-api backend). Built from a full source-code audit \u2014 every route file in src/modules/*/*.routes.js is represented here, nothing omitted.\n\nSETUP:\n1. Set the `baseUrl` collection variable (see its description) to your running server, e.g. http://localhost:5000/api/v1 for local, or https://api.sitenorm.com/api/v1 for production.\n2. Run Auth > Signup, then Auth > Verify OTP (after signup) with the real code emailed to you, OR just run Auth > Signin if you already have a verified account. Either one automatically saves the JWT into the `token` variable via a test script \u2014 every other request already uses {{token}} automatically, no manual copy-pasting required.\n3. Requests marked [Admin] require the logged-in user to have role:admin in the database \u2014 a normal signup will NOT have this. You'll need to manually flip a test user's role to 'admin' directly in MongoDB to test those.\n4. Public endpoints (marked noauth) work with no token at all \u2014 useful for confirming the server is reachable before debugging auth.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -24,17 +24,17 @@
     {
       "key": "serverRoot",
       "value": "http://localhost:5000",
-      "description": "Same host as baseUrl but WITHOUT /api/v1 — used only by the Health Check request, which hits the bare root path."
+      "description": "Same host as baseUrl but WITHOUT /api/v1 \u2014 used only by the Health Check request, which hits the bare root path."
     },
     {
       "key": "token",
       "value": "",
-      "description": "JWT — auto-filled by Signin or Verify OTP's test script. Used as the Bearer token for every request in this collection by default."
+      "description": "JWT \u2014 auto-filled by Signin or Verify OTP's test script. Used as the Bearer token for every request in this collection by default."
     },
     {
       "key": "evaluationId",
       "value": "",
-      "description": "Auto-filled after Calculate (by GPS) — used by Get/Delete Evaluation By ID."
+      "description": "Auto-filled after Calculate (by GPS) \u2014 used by Get/Delete Evaluation By ID."
     }
   ],
   "item": [
@@ -275,7 +275,7 @@
                 "verify-reset-otp"
               ]
             },
-            "description": "Confirms the reset code is valid. Note: reset-password re-validates email+otp itself and does not actually require the resetToken this returns — you can go straight to Reset Password with the same otp.",
+            "description": "Confirms the reset code is valid. Note: reset-password re-validates email+otp itself and does not actually require the resetToken this returns \u2014 you can go straight to Reset Password with the same otp.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"jane.farmer@example.com\",\n  \"otp\": \"123456\"\n}",
@@ -328,7 +328,7 @@
           "response": []
         }
       ],
-      "description": "Signup, email verification, login, password reset. All public (noauth) — these are how you obtain the JWT everything else needs."
+      "description": "Signup, email verification, login, password reset. All public (noauth) \u2014 these are how you obtain the JWT everything else needs."
     },
     {
       "name": "Users",
@@ -433,7 +433,7 @@
                 "avatar"
               ]
             },
-            "description": "Multipart upload, field name must be 'avatar'. Images only (jpeg/png/gif/webp/bmp/tiff/avif — SVG deliberately blocked), max 5MB.",
+            "description": "Multipart upload, field name must be 'avatar'. Images only (jpeg/png/gif/webp/bmp/tiff/avif \u2014 SVG deliberately blocked), max 5MB.",
             "body": {
               "mode": "formdata",
               "formdata": [
@@ -462,7 +462,7 @@
                 "logout"
               ]
             },
-            "description": "Client-side token invalidation is the app's responsibility — this endpoint mainly clears a cookie that isn't actually used by this Bearer-token-based API (harmless no-op server-side)."
+            "description": "Client-side token invalidation is the app's responsibility \u2014 this endpoint mainly clears a cookie that isn't actually used by this Bearer-token-based API (harmless no-op server-side)."
           },
           "response": []
         }
@@ -504,20 +504,7 @@
             }
           },
           "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const data = pm.response.json();",
-                  "    if (data.data && data.data.id) pm.collectionVariables.set('evaluationId', data.data.id);",
-                  "}"
-                ]
-              }
-            }
-          ]
+          "event": []
         },
         {
           "name": "Calculate (by State/County)",
@@ -572,10 +559,10 @@
                 "save"
               ]
             },
-            "description": "Saves a previously-calculated evaluation result against the logged-in user's account. In practice, send the `data` object returned by /calculate or /calculate-by-location as the body.",
+            "description": "Saves a previously-calculated evaluation result against the logged-in user's account.\n\nIMPORTANT \u2014 how to build the body: in the /calculate response, the top level is `{ \"success\": true, \"data\": { ... } }`. Copy ONLY what's INSIDE that `data` key \u2014 i.e. start from `simpleLabel` and end at its matching closing brace \u2014 and paste THAT as the entire body here. Do NOT keep a `data` wrapper around it; `simpleLabel`, `location`, `observationDate`, etc. must be top-level keys of this request body, not nested one level down. A body shaped like `{ \"data\": { ... } }` will fail with 'Path `location.lon` is required' even though location is right there \u2014 the server is looking for it at the top level.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"note\": \"Paste the FULL JSON response body from a Calculate request here (its `data` object) \\u2014 the save endpoint stores whatever fields are sent, keyed by the logged-in user.\"\n}",
+              "raw": "{\n  \"note\": \"Body must be the CONTENTS of data, unwrapped \\u2014 see request description above. Do NOT wrap this in a top-level \\\"data\\\" key.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -583,7 +570,24 @@
               }
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    const data = pm.response.json();",
+                  "    if (data.data && data.data.id) {",
+                  "        pm.collectionVariables.set('evaluationId', data.data.id);",
+                  "        console.log('evaluationId saved to {{evaluationId}}: ' + data.data.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get Saved Evaluations",
@@ -619,7 +623,7 @@
                 "{{evaluationId}}"
               ]
             },
-            "description": "Full detail for one saved evaluation — same response shape as /calculate. Auto-fails with 404 if the evaluation belongs to a different user."
+            "description": "Full detail for one saved evaluation \u2014 same response shape as /calculate. Auto-fails with 404 if the evaluation belongs to a different user."
           },
           "response": []
         },
@@ -638,7 +642,7 @@
                 "{{evaluationId}}"
               ]
             },
-            "description": "Deletes one saved evaluation. Scoped to the logged-in user — cannot delete another user's evaluation."
+            "description": "Deletes one saved evaluation. Scoped to the logged-in user \u2014 cannot delete another user's evaluation."
           },
           "response": []
         },
@@ -745,7 +749,7 @@
                 "nearest"
               ]
             },
-            "description": "Finds AgACIS stations near a GPS point and flags which have usable WETS data — used for manual station picking when auto-search fails.",
+            "description": "Finds AgACIS stations near a GPS point and flags which have usable WETS data \u2014 used for manual station picking when auto-search fails.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"lat\": 38.9072,\n  \"lon\": -77.0369,\n  \"radiusMiles\": 10\n}",
@@ -778,7 +782,7 @@
                 "search-more"
               ]
             },
-            "description": "'View More Nearby Stations' — expands the search radius by 10 miles (capped at 100) and re-searches.",
+            "description": "'View More Nearby Stations' \u2014 expands the search radius by 10 miles (capped at 100) and re-searches.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"lat\": 38.9072,\n  \"lon\": -77.0369,\n  \"currentRadius\": 10\n}",
@@ -858,7 +862,7 @@
           "response": []
         }
       ],
-      "description": "Weather station lookup/search — mostly used internally by Evaluations, exposed standalone for debugging station selection."
+      "description": "Weather station lookup/search \u2014 mostly used internally by Evaluations, exposed standalone for debugging station selection."
     },
     {
       "name": "Settings",
@@ -878,7 +882,7 @@
                 "terms"
               ]
             },
-            "description": "Static, hardcoded Terms & Conditions content. NOTE: the app's frontend actually renders terms from the separate /manage/view-terms-conditions endpoint (DB-driven, admin-editable) — this static version currently appears to be unused by the shipped app. Flagged in the audit report; worth confirming with the team whether to keep, sync, or remove.",
+            "description": "Static, hardcoded Terms & Conditions content. NOTE: the app's frontend actually renders terms from the separate /manage/view-terms-conditions endpoint (DB-driven, admin-editable) \u2014 this static version currently appears to be unused by the shipped app. Flagged in the audit report; worth confirming with the team whether to keep, sync, or remove.",
             "auth": {
               "type": "noauth"
             }
@@ -900,7 +904,7 @@
                 "privacy"
               ]
             },
-            "description": "Static, hardcoded Privacy Policy content. Same duplication note as Get Terms — also, this static copy currently says payments are processed 'securely via Stripe', which is inaccurate (the app uses RevenueCat via Apple/Google in-app purchases, not Stripe). Flagged in the audit report since this endpoint is still publicly reachable even though the app doesn't call it.",
+            "description": "Static, hardcoded Privacy Policy content. Same duplication note as Get Terms \u2014 also, this static copy currently says payments are processed 'securely via Stripe', which is inaccurate (the app uses RevenueCat via Apple/Google in-app purchases, not Stripe). Flagged in the audit report since this endpoint is still publicly reachable even though the app doesn't call it.",
             "auth": {
               "type": "noauth"
             }
@@ -966,7 +970,7 @@
                 "add-terms-conditions"
               ]
             },
-            "description": "Upserts the single Terms & Conditions document (there's only ever one — a second call updates it, it doesn't create a duplicate).",
+            "description": "Upserts the single Terms & Conditions document (there's only ever one \u2014 a second call updates it, it doesn't create a duplicate).",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"description\": \"<h2>Terms & Conditions</h2><p>Full HTML content goes here.</p>\"\n}",
@@ -1016,7 +1020,7 @@
                 "view-terms-conditions"
               ]
             },
-            "description": "Public. Renders the CMS terms document as a styled HTML page — this is the URL the mobile app actually links to.",
+            "description": "Public. Renders the CMS terms document as a styled HTML page \u2014 this is the URL the mobile app actually links to.",
             "auth": {
               "type": "noauth"
             }
@@ -1119,7 +1123,7 @@
                 "view-privacy-policy"
               ]
             },
-            "description": "Public. Rendered HTML page — the URL the mobile app actually links to.",
+            "description": "Public. Rendered HTML page \u2014 the URL the mobile app actually links to.",
             "auth": {
               "type": "noauth"
             }
@@ -1253,7 +1257,7 @@
                 "add-faq"
               ]
             },
-            "description": "`role` enum is currently STUDENT/TEACHER/SCHOOL — this looks like leftover boilerplate from a different (education) project template and doesn't obviously map to this app's actual users (consultants/landowners). Flagged in the audit report — confirm the intended real values with the team before publishing FAQs against this field.",
+            "description": "`role` enum is currently STUDENT/TEACHER/SCHOOL \u2014 this looks like leftover boilerplate from a different (education) project template and doesn't obviously map to this app's actual users (consultants/landowners). Flagged in the audit report \u2014 confirm the intended real values with the team before publishing FAQs against this field.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"question\": \"How is the growing season calculated?\",\n  \"description\": \"Using the median (50th percentile) date of the last spring / first fall 28\\u00b0F freeze across the 1971-2000 period, per NRCS Procedure 2.\",\n  \"role\": \"STUDENT\"\n}",
@@ -1455,7 +1459,7 @@
                 "support"
               ]
             },
-            "description": "Public — no auth required (unlike /settings/contact, which does require auth). This is the actual client-reported-bug-style feedback channel.",
+            "description": "Public \u2014 no auth required (unlike /settings/contact, which does require auth). This is the actual client-reported-bug-style feedback channel.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"subject\": \"Can't see growing season data\",\n  \"opinion\": \"I ran an evaluation and the growing season field says Not available even though the location has weather data.\"\n}",
@@ -1618,7 +1622,7 @@
                 "revenuecat"
               ]
             },
-            "description": "Simulates a RevenueCat webhook delivery. In production this is called by RevenueCat's servers, authenticated via an 'Authorization' header matching REVENUECAT_WEBHOOK_SECRET (add that header manually here if the env var is set). app_user_id must be a real User _id from your database for the status update to actually apply to a user — otherwise the event is still recorded but no user is updated.\n\nTry other event types by changing `type` to: RENEWAL, CANCELLATION, EXPIRATION, BILLING_ISSUE, REFUND, REFUND_REVERSED, TEST. For TRANSFER, use the separate example below — it has a different payload shape (no app_user_id at all).",
+            "description": "Simulates a RevenueCat webhook delivery. In production this is called by RevenueCat's servers, authenticated via an 'Authorization' header matching REVENUECAT_WEBHOOK_SECRET (add that header manually here if the env var is set). app_user_id must be a real User _id from your database for the status update to actually apply to a user \u2014 otherwise the event is still recorded but no user is updated.\n\nTry other event types by changing `type` to: RENEWAL, CANCELLATION, EXPIRATION, BILLING_ISSUE, REFUND, REFUND_REVERSED, TEST. For TRANSFER, use the separate example below \u2014 it has a different payload shape (no app_user_id at all).",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"event\": {\n    \"id\": \"evt_test_12345\",\n    \"type\": \"INITIAL_PURCHASE\",\n    \"app_user_id\": \"REPLACE_WITH_REAL_USER_ID\",\n    \"product_id\": \"sitenorm_pro_yearly:yearly\",\n    \"entitlement_ids\": [\n      \"sitenorm Pro\"\n    ],\n    \"store\": \"PLAY_STORE\",\n    \"environment\": \"SANDBOX\",\n    \"price\": 39.99,\n    \"currency\": \"USD\",\n    \"transaction_id\": \"txn_test_1\",\n    \"original_transaction_id\": \"txn_test_1\",\n    \"purchased_at_ms\": 1750000000000,\n    \"expiration_at_ms\": 1781536000000\n  }\n}",
@@ -1654,7 +1658,7 @@
                 "revenuecat"
               ]
             },
-            "description": "TRANSFER events use a different field shape than every other RevenueCat event — no app_user_id, only transferred_from/transferred_to arrays (per RevenueCat's official docs). The old owner's status is set to expired, the new owner's to active. Both IDs must be real User _ids to see the effect.",
+            "description": "TRANSFER events use a different field shape than every other RevenueCat event \u2014 no app_user_id, only transferred_from/transferred_to arrays (per RevenueCat's official docs). The old owner's status is set to expired, the new owner's to active. Both IDs must be real User _ids to see the effect.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"event\": {\n    \"id\": \"evt_test_transfer_1\",\n    \"type\": \"TRANSFER\",\n    \"store\": \"APP_STORE\",\n    \"environment\": \"SANDBOX\",\n    \"transferred_from\": [\n      \"REPLACE_WITH_OLD_OWNER_USER_ID\"\n    ],\n    \"transferred_to\": [\n      \"REPLACE_WITH_NEW_OWNER_USER_ID\"\n    ]\n  }\n}",
@@ -1758,7 +1762,7 @@
                 ""
               ]
             },
-            "description": "Root endpoint, NOT under /api/v1 — confirms the server process is up and responding at all before testing anything else.",
+            "description": "Root endpoint, NOT under /api/v1 \u2014 confirms the server process is up and responding at all before testing anything else.",
             "auth": {
               "type": "noauth"
             }
