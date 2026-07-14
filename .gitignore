@@ -8,3 +8,10 @@ diagnose.js
 test-api.js
 test-null.js
 test-subscription.mjs
+
+# Diagnostic/audit tooling — hits live 3rd-party APIs to check station
+# health nationwide, not something the running server needs. Flagging this
+# one specifically: unlike the files above, this is a reusable ops tool
+# (see its own header comment), not a throwaway test — if you'd rather keep
+# it versioned for the team, just remove this line.
+scripts/
