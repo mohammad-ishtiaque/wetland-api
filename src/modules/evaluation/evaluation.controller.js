@@ -51,6 +51,101 @@ const buildStationInfoArray = (stationObjects) =>
     distance: Math.round(s.distance * 10) / 10,
   }));
 
+/**
+ * Given a primary (WETS-valid) station and the recent rainfall already
+ * fetched for it, checks whether that rainfall is fully dead (every
+ * requested month null — e.g. a station whose precipitation feed has
+ * stopped reporting even though its 30-year WETS history is fine, like
+ * Lakehurst NAS, NJ, which hasn't reported usable precipitation since
+ * 2002). If dead, tries progressively looser fallback tiers to source
+ * recent rainfall from a nearby station instead, while the primary
+ * station's historical normals are left untouched:
+ *
+ *   Tier 1 (not handled here): the primary station's own rainfall, tried
+ *     by the caller before this function runs at all.
+ *   Tier 2: the next-nearest stations that ALSO have valid 30-year WETS
+ *     history (same standard the primary station had to meet).
+ *   Tier 3: the nearest station of ANY type nearby, even one without a
+ *     full 30-year record — acceptable for recent rainfall only, never
+ *     for historical normals.
+ *
+ * Approved by the client: two different stations may supply the two
+ * figures, as long as it's clear which station supplied which. That's why
+ * every fallback tier logs a stationLog entry, and why the caller reports
+ * `rainfallStation` (null in the common case where the primary station's
+ * own data was usable) alongside the unchanged `station` field.
+ */
+const resolveRainfallWithFallback = async ({
+  primaryStation,
+  primaryRainfall,
+  priorMonths,
+  getCandidateStations,
+  stationLog,
+}) => {
+  const hasUsableData = (r) =>
+    priorMonths.some((m) => r[m.num]?.value !== null && r[m.num]?.value !== undefined);
+
+  if (hasUsableData(primaryRainfall)) {
+    return { rainfall: primaryRainfall, rainfallStation: null };
+  }
+
+  const candidates = await getCandidateStations();
+
+  // Tier 2: next-nearest WETS-valid stations
+  for (const candidate of candidates) {
+    if (candidate.sid === primaryStation.sid) continue;
+    if (candidate.distance != null && candidate.distance > MAX_STATION_DISTANCE_MILES) break;
+    if (!candidate.hasPrecipData) continue;
+
+    const candidateWets = await getWetsData(candidate.sid);
+    if (candidateWets.isInsufficient) continue;
+
+    const candidateRainfall = await getMonthlyPrecipitation(
+      candidate.sid,
+      priorMonths[2].num, priorMonths[2].year,
+      priorMonths[0].num, priorMonths[0].year
+    );
+    if (hasUsableData(candidateRainfall)) {
+      stationLog.push({
+        stationName: candidate.name,
+        sid: candidate.sid,
+        distance: candidate.distance != null ? Math.round(candidate.distance * 10) / 10 : null,
+        status: "used_for_rainfall_fallback",
+        reason: `Primary station ${primaryStation.name} had no recent rainfall data — using this WETS-valid station's recent data instead (historical normals still from ${primaryStation.name})`,
+      });
+      return { rainfall: candidateRainfall, rainfallStation: candidate };
+    }
+  }
+
+  // Tier 3: nearest station of any type, no 30-year requirement — recent
+  // rainfall only, never used for historical normals.
+  for (const candidate of candidates) {
+    if (candidate.sid === primaryStation.sid) continue;
+    if (candidate.distance != null && candidate.distance > MAX_STATION_DISTANCE_MILES) break;
+
+    const candidateRainfall = await getMonthlyPrecipitation(
+      candidate.sid,
+      priorMonths[2].num, priorMonths[2].year,
+      priorMonths[0].num, priorMonths[0].year
+    );
+    if (hasUsableData(candidateRainfall)) {
+      stationLog.push({
+        stationName: candidate.name,
+        sid: candidate.sid,
+        distance: candidate.distance != null ? Math.round(candidate.distance * 10) / 10 : null,
+        status: "used_for_rainfall_fallback_any_type",
+        reason: `Primary station ${primaryStation.name} and nearby WETS-valid stations had no recent rainfall data — using this station (no 30-year history) for recent rainfall only (historical normals still from ${primaryStation.name})`,
+      });
+      return { rainfall: candidateRainfall, rainfallStation: candidate };
+    }
+  }
+
+  // Nothing worked anywhere nearby — return the original (all-null)
+  // rainfall unchanged. calculateDetermination() already handles this
+  // correctly (hasAllData stays false, determination stays null).
+  return { rainfall: primaryRainfall, rainfallStation: null };
+};
+
 
 // ═══════════════════════════════════════════════════════════════
 // POST /api/v1/evaluations/calculate
@@ -173,6 +268,7 @@ export const calculate = async (req, res, next) => {
 
     // ─── STEP 5: Get actual monthly rainfall ───
     let rainfall;
+    let rainfallStation = null;
     if (stationMethod === "triangulated") {
       // Average precipitation across all triangulated stations
       rainfall = await averageMultiStationPrecipitation(
@@ -186,6 +282,17 @@ export const calculate = async (req, res, next) => {
         priorMonths[2].num, priorMonths[2].year,
         priorMonths[0].num, priorMonths[0].year
       );
+
+      const fallback = await resolveRainfallWithFallback({
+        primaryStation: selectedStation,
+        primaryRainfall: rainfall,
+        priorMonths,
+        getCandidateStations: async () => stations,
+        stationLog,
+      });
+      rainfall = fallback.rainfall;
+      rainfallStation = fallback.rainfallStation;
+      if (rainfallStation) stationMethod = "decoupled";
     }
 
     // ─── STEP 6: Get soil map unit ───
@@ -218,6 +325,21 @@ export const calculate = async (req, res, next) => {
       // NEW: all stations used + method indicator
       stations: allStationInfos,
       stationMethod,
+
+      // NEW: set only when recent rainfall came from a different station
+      // than the one supplying historical normals (see STEP 5 fallback
+      // above). null in the common case — same station supplied both.
+      rainfallStation: rainfallStation
+        ? {
+            name: rainfallStation.name,
+            sid: rainfallStation.sid,
+            lat: rainfallStation.lat,
+            lon: rainfallStation.lon,
+            distance: rainfallStation.distance != null
+              ? Math.round(rainfallStation.distance * 10) / 10
+              : null,
+          }
+        : null,
 
       // Location
       location: { lat, lon },
@@ -415,6 +537,7 @@ export const calculateByLocation = async (req, res, next) => {
 
     // ─── STEP 5: Get actual monthly rainfall ───
     let rainfall;
+    let rainfallStation = null;
     if (stationMethod === "triangulated") {
       rainfall = await averageMultiStationPrecipitation(
         triangulatedStations.map((s) => s.station),
@@ -427,6 +550,23 @@ export const calculateByLocation = async (req, res, next) => {
         priorMonths[2].num, priorMonths[2].year,
         priorMonths[0].num, priorMonths[0].year
       );
+
+      // Same fallback as /calculate — see resolveRainfallWithFallback's
+      // comment for the full explanation. County-based lookup doesn't
+      // already have a distance-sorted station list handy, so fetch one
+      // lazily around the selected station's coordinates, only if the
+      // primary station's own rainfall actually turns out to be dead.
+      const fallback = await resolveRainfallWithFallback({
+        primaryStation: selectedStation,
+        primaryRainfall: rainfall,
+        priorMonths,
+        getCandidateStations: async () =>
+          findStationsByBBox(selectedStation.lat, selectedStation.lon, MAX_STATION_DISTANCE_MILES),
+        stationLog,
+      });
+      rainfall = fallback.rainfall;
+      rainfallStation = fallback.rainfallStation;
+      if (rainfallStation) stationMethod = "decoupled";
     }
 
     // ─── STEP 6: Get soil map unit ───
@@ -462,6 +602,21 @@ export const calculateByLocation = async (req, res, next) => {
       // NEW: all stations + method
       stations: allStationInfos,
       stationMethod,
+
+      // NEW: set only when recent rainfall came from a different station
+      // than the one supplying historical normals. null in the common
+      // case — same station supplied both.
+      rainfallStation: rainfallStation
+        ? {
+            name: rainfallStation.name,
+            sid: rainfallStation.sid,
+            lat: rainfallStation.lat,
+            lon: rainfallStation.lon,
+            distance: rainfallStation.distance != null
+              ? Math.round(rainfallStation.distance * 10) / 10
+              : null,
+          }
+        : null,
 
       location: { lat: refLat, lon: refLon },
       county: displayCountyName,
